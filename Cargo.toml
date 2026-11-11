@@ -9,6 +9,7 @@ impl_ops = "0.1"
 rand = {version = "0.10", features = ["std_rng"]}
 shake = "0.1"
 anyhow = "1"
+thiserror = "2"
 
 [dev-dependencies]
 hex-literal = "1.1.0"

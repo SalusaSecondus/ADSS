@@ -1,5 +1,6 @@
 #[macro_use] extern crate impl_ops;
 
+pub mod adss;
 pub mod errors;
 mod gf256;
 mod s1;
