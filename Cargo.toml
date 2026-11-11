@@ -1,0 +1,14 @@
+[package]
+name = "adss"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ctutils = "0.4"
+impl_ops = "0.1"
+rand = {version = "0.10", features = ["std_rng"]}
+shake = "0.1"
+anyhow = "1"
+
+[dev-dependencies]
+hex-literal = "1.1.0"
