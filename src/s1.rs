@@ -3,15 +3,17 @@
 use shake::XofReader;
 
 use crate::{
-    CompactShare, CompactShareCollection, ShareCollection, ShareInfo, ThresholdAccess, errors::{ADSSError::UnsupportedShareType, ADSSResult}, gf256::GF256, oracles::s1_xof,
+    CompactShare, CompactShareCollection, ShareCollection, ShareInfo, ThresholdAccess,
+    errors::{ADSSError::UnsupportedShareType, ADSSResult},
+    gf256::GF256,
+    oracles::s1_xof,
 };
 
 pub(crate) fn share(
     access_structure: ThresholdAccess,
     message: &[u8],
     r: &[u8],
-) -> ADSSResult<CompactShareCollection>
-{
+) -> ADSSResult<CompactShareCollection> {
     let r = &mut s1_xof(r);
     let mut shares = vec![
         CompactShare {
@@ -34,7 +36,12 @@ pub(crate) fn share(
             shares[sidx].secret_part[idx] = *val;
         }
     }
-    Ok(CompactShareCollection { shares, access_structure, public_part: vec![], tag: vec![] })
+    Ok(CompactShareCollection {
+        shares,
+        access_structure,
+        public_part: vec![],
+        tag: vec![],
+    })
 }
 
 pub(crate) fn recover<S: ShareCollection>(shares: &S) -> ADSSResult<(Vec<u8>, S)> {
@@ -48,7 +55,11 @@ pub(crate) fn recover<S: ShareCollection>(shares: &S) -> ADSSResult<(Vec<u8>, S)
     }
     let mut result = vec![0u8; shares.info()?[0].secret_part().len()];
     for (idx, rval) in result.iter_mut().enumerate() {
-        let v: Vec<GF256> = shares.info()?.iter().map(|s| s.secret_part()[idx].into()).collect();
+        let v: Vec<GF256> = shares
+            .info()?
+            .iter()
+            .map(|s| s.secret_part()[idx].into())
+            .collect();
         *rval = i(&ids, &v).into();
     }
     Ok((result, shares.clone()))
@@ -107,7 +118,7 @@ fn i(u: &[GF256], v: &[GF256]) -> GF256 {
 mod test {
     use crate::Share;
 
-use super::*;
+    use super::*;
     use hex_literal::hex;
 
     #[test]

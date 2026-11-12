@@ -1,6 +1,9 @@
 // https://datatracker.ietf.org/doc/html/draft-mcgrew-tss-03
 
-use std::{fmt::{Debug, Display}, ops};
+use std::{
+    fmt::{Debug, Display},
+    ops,
+};
 
 use ctutils::{CtEq, CtLookup, CtSelect};
 

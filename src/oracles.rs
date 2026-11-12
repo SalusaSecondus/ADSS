@@ -4,8 +4,7 @@ const AX_HASH_DOMAIN_SEP: &[u8; 18] = b"C2SP/ADSS/AX/HASH:";
 const AX_PRF_DOMAIN_SEP: &[u8; 17] = b"C2SP/ADSS/AX/PRF:";
 const S1_XOF_DOMAIN_SEP: &[u8; 17] = b"C2SP/ADSS/S1/XOF:";
 
-pub(crate) fn sponge() -> Shake256
-{
+pub(crate) fn sponge() -> Shake256 {
     Shake256::default()
 }
 
@@ -20,7 +19,10 @@ pub(crate) fn ax_prf(key: &[u8]) -> Shake256 {
 }
 
 pub(crate) fn s1_xof(coins: &[u8]) -> impl XofReader {
-    sponge().chain(S1_XOF_DOMAIN_SEP).chain(coins).finalize_xof()
+    sponge()
+        .chain(S1_XOF_DOMAIN_SEP)
+        .chain(coins)
+        .finalize_xof()
 }
 
 pub(crate) fn multi_hash_part(h: &mut Shake256, data: &[u8]) {

@@ -1,9 +1,23 @@
 use ctutils::CtEq;
 use shake::{ExtendableOutput, Update, XofReader};
 
-use crate::{CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType}, ADSSResult}, oracles::{ax_hash, ax_prf, multi_hash_part}, s1};
+use crate::{
+    CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo,
+    ThresholdAccess,
+    errors::{
+        ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
+        ADSSResult,
+    },
+    oracles::{ax_hash, ax_prf, multi_hash_part},
+    s1,
+};
 
-pub(crate) fn share(access_structure: ThresholdAccess, message: &[u8], r: &[u8], aad: &[u8]) -> ADSSResult<CompactShareCollection> {
+pub(crate) fn share(
+    access_structure: ThresholdAccess,
+    message: &[u8],
+    r: &[u8],
+    aad: &[u8],
+) -> ADSSResult<CompactShareCollection> {
     if r.len() != SEC_PARAM_BYTES {
         return Err(InvalidCoinLength(r.len(), SEC_PARAM_BYTES));
     }
@@ -24,7 +38,7 @@ pub(crate) fn share(access_structure: ThresholdAccess, message: &[u8], r: &[u8],
         *dest ^= src;
     }
     let d = d;
-    
+
     let mut public_part = vec![];
     public_part.extend_from_slice(&c);
     public_part.extend_from_slice(&d);
@@ -36,7 +50,9 @@ pub(crate) fn share(access_structure: ThresholdAccess, message: &[u8], r: &[u8],
     Ok(shares)
 }
 
-pub (crate) fn recover<C: ShareCollection>(shares: &C) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+pub(crate) fn recover<C: ShareCollection>(
+    shares: &C,
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
     let info = shares.info()?;
     let t = info.len();
     let access_structure = shares.access_structure()?;
@@ -44,16 +60,22 @@ pub (crate) fn recover<C: ShareCollection>(shares: &C) -> ADSSResult<(Vec<u8>, [
     let (c, d, j) = split_cdj(public_info)?;
 
     let mut inner_shares = CompactShareCollection {
-        shares: vec![CompactShare{ id: 0, secret_part: vec![]}; t],
+        shares: vec![
+            CompactShare {
+                id: 0,
+                secret_part: vec![]
+            };
+            t
+        ],
         access_structure,
         public_part: vec![],
-        tag: vec![]
+        tag: vec![],
     };
     for (dest, src) in inner_shares.shares.iter_mut().zip(info.iter()) {
         dest.id = src.id();
         dest.secret_part.extend_from_slice(src.secret_part());
     }
-    let (k, _)=  s1::recover(&inner_shares)?;
+    let (k, _) = s1::recover(&inner_shares)?;
     let mut m = vec![0u8; c.len()];
     ax_prf(&k).finalize_xof_into(&mut m);
     for (dst, src) in m.iter_mut().zip(c.iter()) {
@@ -75,7 +97,16 @@ pub (crate) fn recover<C: ShareCollection>(shares: &C) -> ADSSResult<(Vec<u8>, [
     }
 }
 
-fn jkl(access_structure: ThresholdAccess, message: &[u8], r: &[u8], aad: &[u8]) -> ADSSResult<([u8; 2 * SEC_PARAM_BYTES], [u8; SEC_PARAM_BYTES], [u8; SEC_PARAM_BYTES])> {
+fn jkl(
+    access_structure: ThresholdAccess,
+    message: &[u8],
+    r: &[u8],
+    aad: &[u8],
+) -> ADSSResult<(
+    [u8; 2 * SEC_PARAM_BYTES],
+    [u8; SEC_PARAM_BYTES],
+    [u8; SEC_PARAM_BYTES],
+)> {
     let mut hash = ax_hash();
     multi_hash_part(&mut hash, &access_structure.serialize());
     multi_hash_part(&mut hash, message);
@@ -91,29 +122,29 @@ fn jkl(access_structure: ThresholdAccess, message: &[u8], r: &[u8], aad: &[u8]) 
     Ok((j, k, l))
 }
 
-fn split_cdj(cdj: &[u8]) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], [u8; 2 * SEC_PARAM_BYTES])> {
+fn split_cdj(
+    cdj: &[u8],
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], [u8; 2 * SEC_PARAM_BYTES])> {
     if cdj.len() < 3 * SEC_PARAM_BYTES {
         return Err(UnsupportedShareType);
     }
     let c_len = cdj.len() - (3 * SEC_PARAM_BYTES);
     let mut c = vec![0u8; c_len];
-    c.copy_from_slice(&cdj[..c_len]);  
+    c.copy_from_slice(&cdj[..c_len]);
     let mut d = [0u8; SEC_PARAM_BYTES];
-    d.copy_from_slice(&cdj[c_len..c_len+SEC_PARAM_BYTES]);
+    d.copy_from_slice(&cdj[c_len..c_len + SEC_PARAM_BYTES]);
     let mut j = [0u8; 2 * SEC_PARAM_BYTES];
-    j.copy_from_slice(&cdj[cdj.len()-2*SEC_PARAM_BYTES..]);
+    j.copy_from_slice(&cdj[cdj.len() - 2 * SEC_PARAM_BYTES..]);
     Ok((c, d, j))
-
 }
 
 #[cfg(test)]
 mod test {
     use crate::Share;
 
-use super::*;
+    use super::*;
     use hex_literal::hex;
     use shake::{ExtendableOutput, Shake128, Update};
-
 
     #[test]
     fn smoke_share_split() -> ADSSResult<()> {

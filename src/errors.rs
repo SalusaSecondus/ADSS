@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-
 #[derive(Error, Debug)]
 pub enum ADSSError {
     #[error("no shares")]
@@ -22,7 +21,7 @@ pub enum ADSSError {
     #[error("invalid coin length. Had {0} but needed {0}")]
     InvalidCoinLength(usize, usize),
     #[error("reconstruction failed integrity check")]
-    IntegrityError
+    IntegrityError,
 }
 
 pub type ADSSResult<T> = Result<T, ADSSError>;

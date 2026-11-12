@@ -215,13 +215,16 @@ pub(crate) trait ShareCollection: Clone {
 
     fn expand(&self) -> ADSSResult<Vec<Share>> {
         let info = self.info()?;
-        let mut result = vec![Share {
-            id: 0,
-            access_structure: self.access_structure()?,
-            secret_part: vec![],
-            public_part: self.public_part()?.to_vec(),
-            tag: self.aad()?.to_vec(),
-        }; info.len()];
+        let mut result = vec![
+            Share {
+                id: 0,
+                access_structure: self.access_structure()?,
+                secret_part: vec![],
+                public_part: self.public_part()?.to_vec(),
+                tag: self.aad()?.to_vec(),
+            };
+            info.len()
+        ];
         for (dest, src) in result.iter_mut().zip(info) {
             dest.id = src.id();
             dest.secret_part.extend_from_slice(src.secret_part());
@@ -230,15 +233,20 @@ pub(crate) trait ShareCollection: Clone {
     }
 
     fn compact(&self) -> ADSSResult<CompactShareCollection> {
-        let shares : Vec<CompactShare> = self.info()?.iter().map(|i| CompactShare { id: i.id(), secret_part: i.secret_part().to_vec()}).collect();
-        Ok(
-            CompactShareCollection {
-                shares,
-                access_structure: self.access_structure()?,
-                public_part: self.public_part()?.to_vec(),
-                tag: self.aad()?.to_vec(),
-            }
-        )
+        let shares: Vec<CompactShare> = self
+            .info()?
+            .iter()
+            .map(|i| CompactShare {
+                id: i.id(),
+                secret_part: i.secret_part().to_vec(),
+            })
+            .collect();
+        Ok(CompactShareCollection {
+            shares,
+            access_structure: self.access_structure()?,
+            public_part: self.public_part()?.to_vec(),
+            tag: self.aad()?.to_vec(),
+        })
     }
 }
 
