@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-use crate::errors::ADSSError::{NoShares, TooManyShares};
 
 #[derive(Error, Debug)]
 pub enum ADSSError {

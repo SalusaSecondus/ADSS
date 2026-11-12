@@ -54,39 +54,6 @@ pub(crate) fn recover<S: ShareCollection>(shares: &S) -> ADSSResult<(Vec<u8>, S)
     Ok((result, shares.clone()))
 }
 
-// TODO: Remove
-fn split<X>(secret: &[u8], m: u8, n: u8, xof: &mut X) -> ADSSResult<Vec<Vec<u8>>>
-where
-    X: XofReader,
-{
-    // TODO: Add argument checks
-    let mut result = vec![vec![0u8; secret.len() + 1]; n as usize];
-    for (idx, val) in result.iter_mut().enumerate() {
-        val[0] = (idx + 1) as u8;
-    }
-    for (idx, s) in secret.iter().enumerate() {
-        let splits = split_byte(s.into(), m, n, xof);
-        for (sidx, val) in splits.iter().enumerate() {
-            result[sidx][idx + 1] = *val;
-        }
-    }
-    Ok(result)
-}
-
-// TODO: Remove
-pub fn reconstruct(shares: &[Vec<u8>]) -> ADSSResult<Vec<u8>> {
-    // TODO: Check inputs
-    let mut result = vec![0; shares[0].len() - 1];
-    let u: Vec<GF256> = shares.iter().map(|s| s[0].into()).collect();
-
-    for (idx, rval) in result.iter_mut().enumerate() {
-        let v: Vec<GF256> = shares.iter().map(|s| s[idx + 1].into()).collect();
-        *rval = i(&u, &v).into();
-    }
-
-    Ok(result)
-}
-
 fn split_byte<X>(secret: GF256, m: u8, n: u8, xof: &mut X) -> Vec<u8>
 where
     X: XofReader,
@@ -142,44 +109,6 @@ mod test {
 
 use super::*;
     use hex_literal::hex;
-    use shake::{ExtendableOutput, Shake128, Update};
-
-    #[test]
-    fn smoke_kat() -> ADSSResult<()> {
-        let share1: Vec<u8> = hex!("01B9FA07E185").into();
-        let share2: Vec<u8> = hex!("02F5409B4511").into();
-        let shares = vec![share1, share2];
-
-        let result = reconstruct(&shares)?;
-        assert_eq!(&result, &hex!("7465737400"));
-        Ok(())
-    }
-
-    #[test]
-    fn smoke_split() -> ADSSResult<()> {
-        let secret = b"Secret message";
-        let mut shake = Shake128::default();
-        shake.update(b"Some seed");
-
-        let shares = split(secret, 2, 3, &mut shake.finalize_xof())?;
-
-        let recombined = reconstruct(&shares)?;
-        assert_eq!(secret.as_slice(), recombined.as_slice());
-
-        // Assemble from first two
-        let recombined = reconstruct(&shares[0..2])?;
-        assert_eq!(secret.as_slice(), recombined.as_slice());
-
-        // Assemble from last two
-        let recombined = reconstruct(&shares[1..3])?;
-        assert_eq!(secret.as_slice(), recombined.as_slice());
-
-        // Assemble Outer two
-        let tmp = [shares[0].clone(), shares[2].clone()];
-        let recombined = reconstruct(&tmp)?;
-        assert_eq!(secret.as_slice(), recombined.as_slice());
-        Ok(())
-    }
 
     #[test]
     fn smoke_share_kat() -> ADSSResult<()> {
