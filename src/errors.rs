@@ -20,6 +20,10 @@ pub enum ADSSError {
     ThresholdAccessWrongLength(usize),
     #[error("Invalid encoding for ThresholdAccess: {0}, {1}")]
     InvalidThresholdAccess(u8, u8),
+    #[error("invalid coin length. Had {0} but needed {0}")]
+    InvalidCoinLength(usize, usize),
+    #[error("reconstruction failed integrity check")]
+    IntegrityError
 }
 
 pub type ADSSResult<T> = Result<T, ADSSError>;
