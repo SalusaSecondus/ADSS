@@ -81,17 +81,17 @@ pub struct Share {
     pub(crate) tag: Vec<u8>,
 }
 
-impl Share {
-    pub fn access_structure(&self) -> ThresholdAccess {
-        self.access_structure
+impl CommonInfo for Share {
+    fn access_structure(&self) -> ADSSResult<ThresholdAccess> {
+        Ok(self.access_structure)
     }
 
-    pub fn public_part(&self) -> &[u8] {
-        &self.public_part
+    fn public_part(&self) -> ADSSResult<&[u8]> {
+        Ok(&self.public_part)
     }
 
-    pub fn aad(&self) -> &[u8] {
-        &self.tag
+    fn aad(&self) -> ADSSResult<&[u8]> {
+        Ok(&self.tag)
     }
 }
 
@@ -166,13 +166,7 @@ pub struct CompactShareCollection {
     pub(crate) tag: Vec<u8>,
 }
 
-impl ShareCollection for CompactShareCollection {
-    fn ids(&self) -> ADSSResult<Vec<u8>> {
-        self.shares_len()?;
-        // TODO: Check for duplicate ids
-        Ok(self.shares.iter().map(|s| s.id()).collect())
-    }
-
+impl CommonInfo for CompactShareCollection {
     fn public_part(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
         Ok(&self.public_part)
@@ -186,6 +180,14 @@ impl ShareCollection for CompactShareCollection {
     fn aad(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
         Ok(&self.tag)
+    }
+}
+
+impl ShareCollection for CompactShareCollection {
+    fn ids(&self) -> ADSSResult<Vec<u8>> {
+        self.shares_len()?;
+        // TODO: Check for duplicate ids
+        Ok(self.shares.iter().map(|s| s.id()).collect())
     }
 
     fn shares_len(&self) -> ADSSResult<u8> {
@@ -204,12 +206,8 @@ impl ShareCollection for CompactShareCollection {
     }
 }
 
-pub(crate) trait ShareCollection: Clone {
-    // fn secret_parts(&self) -> ADSSResult<Vec<&[u8]>>;
-    fn public_part(&self) -> ADSSResult<&[u8]>;
+pub(crate) trait ShareCollection: Clone + CommonInfo {
     fn ids(&self) -> ADSSResult<Vec<u8>>;
-    fn access_structure(&self) -> ADSSResult<ThresholdAccess>;
-    fn aad(&self) -> ADSSResult<&[u8]>;
     fn shares_len(&self) -> ADSSResult<u8>;
     fn info(&self) -> ADSSResult<&[impl ShareInfo]>;
 
@@ -256,32 +254,33 @@ pub trait ShareInfo: Debug + PartialEq + Eq {
     fn secret_part(&self) -> &[u8];
 }
 
-impl ShareCollection for Vec<Share> {
-    // fn secret_parts(&self) -> ADSSResult<Vec<&[u8]>> {
-    //     self.shares_len()?;
-    //     Ok(self.iter().map(|s| s.secret_part()).collect())
-    // }
+pub trait CommonInfo: Debug + PartialEq + Eq {
+    fn public_part(&self) -> ADSSResult<&[u8]>;
+    fn access_structure(&self) -> ADSSResult<ThresholdAccess>;
+    fn aad(&self) -> ADSSResult<&[u8]>;
+}
 
+impl CommonInfo for Vec<Share> {
     fn public_part(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
-        let result = self[0].public_part();
-        if self.iter().all(|a| a.public_part() == result) {
+        let result = self[0].public_part()?;
+        if self
+            .iter()
+            .all(|a| a.public_part().is_ok_and(|a| a == result))
+        {
             Ok(result)
         } else {
             Err(AadMismatch)
         }
     }
 
-    fn ids(&self) -> ADSSResult<Vec<u8>> {
-        self.shares_len()?;
-        // TODO: Check for duplicate ids
-        Ok(self.iter().map(|s| s.id()).collect())
-    }
-
     fn access_structure(&self) -> ADSSResult<ThresholdAccess> {
         let count = self.shares_len()?;
-        let result = self[0].access_structure();
-        if self.iter().all(|a| a.access_structure() == result) {
+        let result = self[0].access_structure()?;
+        if self
+            .iter()
+            .all(|a| a.access_structure().is_ok_and(|a| a == result))
+        {
             if count >= result.threshold() {
                 Ok(result)
             } else {
@@ -294,12 +293,20 @@ impl ShareCollection for Vec<Share> {
 
     fn aad(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
-        let result = self[0].aad();
-        if self.iter().all(|a| a.aad() == result) {
+        let result = self[0].aad()?;
+        if self.iter().all(|a| a.aad().is_ok_and(|a| a == result)) {
             Ok(result)
         } else {
             Err(AadMismatch)
         }
+    }
+}
+
+impl ShareCollection for Vec<Share> {
+    fn ids(&self) -> ADSSResult<Vec<u8>> {
+        self.shares_len()?;
+        // TODO: Check for duplicate ids
+        Ok(self.iter().map(|s| s.id()).collect())
     }
 
     fn shares_len(&self) -> ADSSResult<u8> {
@@ -318,32 +325,27 @@ impl ShareCollection for Vec<Share> {
     }
 }
 
-impl ShareCollection for &[Share] {
-    // fn secret_parts(&self) -> ADSSResult<Vec<&[u8]>> {
-    //     self.shares_len()?;
-    //     Ok(self.iter().map(|s| s.secret_part()).collect())
-    // }
-
+impl CommonInfo for &[Share] {
     fn public_part(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
-        let result = self[0].public_part();
-        if self.iter().all(|a| a.public_part() == result) {
+        let result = self[0].public_part()?;
+        if self
+            .iter()
+            .all(|a| a.public_part().is_ok_and(|a| a == result))
+        {
             Ok(result)
         } else {
             Err(AadMismatch)
         }
     }
 
-    fn ids(&self) -> ADSSResult<Vec<u8>> {
-        self.shares_len()?;
-        // TODO: Check for duplicate ids
-        Ok(self.iter().map(|s| s.id()).collect())
-    }
-
     fn access_structure(&self) -> ADSSResult<ThresholdAccess> {
         let count = self.shares_len()?;
-        let result = self[0].access_structure();
-        if self.iter().all(|a| a.access_structure() == result) {
+        let result = self[0].access_structure()?;
+        if self
+            .iter()
+            .all(|a| a.access_structure().is_ok_and(|a| a == result))
+        {
             if count >= result.threshold() {
                 Ok(result)
             } else {
@@ -356,12 +358,20 @@ impl ShareCollection for &[Share] {
 
     fn aad(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
-        let result = self[0].aad();
-        if self.iter().all(|a| a.aad() == result) {
+        let result = self[0].aad()?;
+        if self.iter().all(|a| a.aad().is_ok_and(|a| a == result)) {
             Ok(result)
         } else {
             Err(AadMismatch)
         }
+    }
+}
+
+impl ShareCollection for &[Share] {
+    fn ids(&self) -> ADSSResult<Vec<u8>> {
+        self.shares_len()?;
+        // TODO: Check for duplicate ids
+        Ok(self.iter().map(|s| s.id()).collect())
     }
 
     fn shares_len(&self) -> ADSSResult<u8> {

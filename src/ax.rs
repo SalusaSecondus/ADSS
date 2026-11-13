@@ -1,5 +1,5 @@
 use ctutils::CtEq;
-use shake::{ExtendableOutput, Update, XofReader};
+use shake::{ExtendableOutput, XofReader};
 
 use crate::{
     CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo,
@@ -8,7 +8,7 @@ use crate::{
         ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
         ADSSResult,
     },
-    oracles::{ax_hash, ax_prf, multi_hash_part},
+    oracles::{ax_cprf, ax_dprf, ax_hash, multi_hash_part},
     s1,
 };
 
@@ -24,16 +24,14 @@ pub(crate) fn share(
     // ‖ K ‖ L ← H 4κ (A,M,R,T) where |J | = 2κ and |K | = |L | = κ
     let (j, k, l) = jkl(access_structure, message, r, aad)?;
     // C ← M ⊕ f(ε);
-    let mut c = vec![0u8; message.len()];
-    ax_prf(&k).finalize_xof_into(&mut c);
+    let mut c = ax_cprf(&k, message.len());
     for (dest, src) in c.iter_mut().zip(message.iter()) {
         *dest ^= src;
     }
     let c = c;
 
     // D ← R ⊕ f(0)
-    let mut d = [0u8; SEC_PARAM_BYTES];
-    ax_prf(&k).chain([0]).finalize_xof_into(&mut d);
+    let mut d = ax_dprf(&k);
     for (dest, src) in d.iter_mut().zip(r) {
         *dest ^= src;
     }
@@ -76,13 +74,11 @@ pub(crate) fn recover<C: ShareCollection>(
         dest.secret_part.extend_from_slice(src.secret_part());
     }
     let (k, _) = s1::recover(&inner_shares)?;
-    let mut m = vec![0u8; c.len()];
-    ax_prf(&k).finalize_xof_into(&mut m);
+    let mut m = ax_cprf(&k, c.len());
     for (dst, src) in m.iter_mut().zip(c.iter()) {
         *dst ^= src;
     }
-    let mut r = [0u8; SEC_PARAM_BYTES];
-    ax_prf(&k).chain([0]).finalize_xof_into(&mut r);
+    let mut r = ax_dprf(&k);
     for (dst, src) in r.iter_mut().zip(d.iter()) {
         *dst ^= src;
     }
@@ -140,7 +136,7 @@ fn split_cdj(
 
 #[cfg(test)]
 mod test {
-    use crate::Share;
+    use crate::{CommonInfo, Share};
 
     use super::*;
     use hex_literal::hex;
@@ -158,7 +154,9 @@ mod test {
         assert_eq!(aad, shares.aad()?);
         let shares = shares.expand()?;
         assert_eq!(aad, shares.aad()?);
-        shares.iter().for_each(|s| assert_eq!(aad, s.aad()));
+        for s in &shares {
+            assert_eq!(aad, s.aad()?);
+        }
 
         let result = recover(&shares)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
