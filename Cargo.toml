@@ -3,10 +3,17 @@ name = "adss"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default=["ex", "getrandom"]
+ex = ["dep:itertools"]
+getrandom = ["dep:rand"]
+
+
 [dependencies]
 ctutils = "0.4"
 impl_ops = "0.1"
-rand = {version = "0.10", features = ["std_rng"]}
+rand = {version = "0.10", features = ["std_rng"], optional=true}
+itertools = {version = "0.15", optional=true}
 shake = "0.1"
 anyhow = "1"
 thiserror = "2"

@@ -44,7 +44,7 @@ pub(crate) fn share(
     })
 }
 
-pub(crate) fn recover<S: ShareCollection>(shares: &S) -> ADSSResult<(Vec<u8>, S)> {
+pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSResult<(Vec<u8>, S)> {
     // Ensures that we have enough shares
     shares.access_structure()?;
     // Checks for duplicate Ids

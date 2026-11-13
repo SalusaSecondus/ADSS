@@ -48,7 +48,7 @@ pub(crate) fn share(
     Ok(shares)
 }
 
-pub(crate) fn recover<C: ShareCollection>(
+pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
 ) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
     let info = shares.info()?;

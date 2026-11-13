@@ -11,7 +11,9 @@ use crate::errors::{
 };
 
 mod ax;
-pub mod errors;
+mod errors;
+#[cfg(feature = "ex")]
+mod ex;
 mod gf256;
 mod oracles;
 mod s1;
@@ -159,14 +161,16 @@ impl Debug for CompactShare {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompactShareCollection {
-    pub(crate) shares: Vec<CompactShare>,
+pub struct ShareCollectionImpl<I: ShareInfo> {
+    pub(crate) shares: Vec<I>,
     pub(crate) access_structure: ThresholdAccess,
     pub(crate) public_part: Vec<u8>,
     pub(crate) tag: Vec<u8>,
 }
 
-impl CommonInfo for CompactShareCollection {
+pub type CompactShareCollection = ShareCollectionImpl<CompactShare>;
+
+impl<I: ShareInfo> CommonInfo for ShareCollectionImpl<I> {
     fn public_part(&self) -> ADSSResult<&[u8]> {
         self.shares_len()?;
         Ok(&self.public_part)
@@ -183,7 +187,7 @@ impl CommonInfo for CompactShareCollection {
     }
 }
 
-impl ShareCollection for CompactShareCollection {
+impl<I: ShareInfo> ShareCollection<I> for ShareCollectionImpl<I> {
     fn ids(&self) -> ADSSResult<Vec<u8>> {
         self.shares_len()?;
         // TODO: Check for duplicate ids
@@ -201,15 +205,15 @@ impl ShareCollection for CompactShareCollection {
         }
     }
 
-    fn info(&self) -> ADSSResult<&[impl ShareInfo]> {
+    fn info(&self) -> ADSSResult<&[I]> {
         Ok(&self.shares)
     }
 }
 
-pub(crate) trait ShareCollection: Clone + CommonInfo {
+pub trait ShareCollection<S: ShareInfo>: Clone + CommonInfo {
     fn ids(&self) -> ADSSResult<Vec<u8>>;
     fn shares_len(&self) -> ADSSResult<u8>;
-    fn info(&self) -> ADSSResult<&[impl ShareInfo]>;
+    fn info(&self) -> ADSSResult<&[S]>;
 
     fn expand(&self) -> ADSSResult<Vec<Share>> {
         let info = self.info()?;
@@ -248,7 +252,7 @@ pub(crate) trait ShareCollection: Clone + CommonInfo {
     }
 }
 
-pub trait ShareInfo: Debug + PartialEq + Eq {
+pub trait ShareInfo: Debug + PartialEq + Eq + Clone {
     fn id(&self) -> u8;
 
     fn secret_part(&self) -> &[u8];
@@ -302,7 +306,7 @@ impl CommonInfo for Vec<Share> {
     }
 }
 
-impl ShareCollection for Vec<Share> {
+impl ShareCollection<Share> for Vec<Share> {
     fn ids(&self) -> ADSSResult<Vec<u8>> {
         self.shares_len()?;
         // TODO: Check for duplicate ids
@@ -320,7 +324,7 @@ impl ShareCollection for Vec<Share> {
         }
     }
 
-    fn info(&self) -> ADSSResult<&[impl ShareInfo]> {
+    fn info(&self) -> ADSSResult<&[Share]> {
         Ok(self)
     }
 }
@@ -367,7 +371,7 @@ impl CommonInfo for &[Share] {
     }
 }
 
-impl ShareCollection for &[Share] {
+impl ShareCollection<Share> for &[Share] {
     fn ids(&self) -> ADSSResult<Vec<u8>> {
         self.shares_len()?;
         // TODO: Check for duplicate ids
@@ -385,7 +389,29 @@ impl ShareCollection for &[Share] {
         }
     }
 
-    fn info(&self) -> ADSSResult<&[impl ShareInfo]> {
+    fn info(&self) -> ADSSResult<&[Share]> {
         Ok(self)
     }
+}
+
+pub fn share(
+    access_structure: ThresholdAccess,
+    message: &[u8],
+    r: &[u8],
+    aad: &[u8],
+) -> ADSSResult<CompactShareCollection> {
+    ax::share(access_structure, message, r, aad)
+}
+
+pub fn recover<I: ShareInfo, C: ShareCollection<I>>(
+    shares: &C,
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+    ax::recover(shares)
+}
+
+#[cfg(feature = "ex")]
+pub fn recover_error_correction<I: ShareInfo, C: ShareCollection<I>>(
+    shares: &C,
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+    ex::recover(shares)
 }
