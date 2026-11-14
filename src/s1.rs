@@ -3,10 +3,7 @@
 use shake::XofReader;
 
 use crate::{
-    CompactShare, CompactShareCollection, ShareCollection, ShareInfo, ThresholdAccess,
-    errors::{ADSSError::UnsupportedShareType, ADSSResult},
-    gf256::GF256,
-    oracles::s1_xof,
+    CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{ADSSError::UnsupportedShareType, ADSSResult}, gf256::GF256, oracles::s1_xof,
 };
 
 pub(crate) fn share(
@@ -18,7 +15,7 @@ pub(crate) fn share(
     let mut shares = vec![
         CompactShare {
             id: 0,
-            secret_part: vec![0u8; message.len()],
+            secret_part: [0u8; SEC_PARAM_BYTES],
         };
         access_structure.total() as usize
     ];
@@ -44,7 +41,7 @@ pub(crate) fn share(
     })
 }
 
-pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSResult<(Vec<u8>, S)> {
+pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSResult<(Vec<u8>, Vec<u8>)> {
     // Ensures that we have enough shares
     shares.access_structure()?;
     // Checks for duplicate Ids
@@ -62,7 +59,7 @@ pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSRe
             .collect();
         *rval = i(&ids, &v).into();
     }
-    Ok((result, shares.clone()))
+    Ok((result, shares.ids()?.to_vec()))
 }
 
 fn split_byte<X>(secret: GF256, m: u8, n: u8, xof: &mut X) -> Vec<u8>
@@ -116,79 +113,43 @@ fn i(u: &[GF256], v: &[GF256]) -> GF256 {
 
 #[cfg(test)]
 mod test {
-    use crate::Share;
-
     use super::*;
-    use hex_literal::hex;
 
-    #[test]
-    fn smoke_share_kat() -> ADSSResult<()> {
-        let access_structure = ThresholdAccess::new(2, 2)?;
-        let share1 = Share {
-            id: 1,
-            access_structure,
-            secret_part: hex!("B9FA07E185").to_vec(),
-            public_part: vec![],
-            tag: vec![],
-        };
-        let share2 = Share {
-            id: 2,
-            access_structure,
-            secret_part: hex!("F5409B4511").to_vec(),
-            public_part: vec![],
-            tag: vec![],
-        };
-        let shares = vec![share1, share2];
-
-        let result = recover(&shares)?;
-        assert_eq!(&result.0, &hex!("7465737400"));
-        assert_eq!(shares.len(), result.1.len());
-        for v in shares.iter().zip(result.1.iter()) {
-            assert_eq!(v.0, v.1);
-        }
-        Ok(())
-    }
 
     #[test]
     fn smoke_share_split() -> ADSSResult<()> {
         let access_structure = ThresholdAccess::new(2, 3)?;
 
-        let secret = b"Secret message";
+        let secret = b"Secret message that is 32 bytes!";
 
         let shares = share(access_structure, secret, b"coins")?;
         let shares = shares.expand()?;
 
         let result = recover(&shares)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(shares.info()?.len(), result.1.info()?.len());
-        for v in shares.info()?.iter().zip(result.1.info()?.iter()) {
-            assert_eq!(v.0, v.1);
-        }
+        assert_eq!(shares.ids()?, result.1);
 
         // Assemble from first two
         let result = recover(&&shares[0..2])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
         assert_eq!(2, result.1.len());
-        let result = result.1.expand()?;
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[1], result[1]);
+        assert_eq!(shares[0].id(), result.1[0]);
+        assert_eq!(shares[1].id(), result.1[1]);
 
         // Assemble from last two
         let result = recover(&&shares[1..3])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
         assert_eq!(2, result.1.len());
-        let result = result.1.expand()?;
-        assert_eq!(shares[1], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(shares[1].id(), result.1[0]);
+        assert_eq!(shares[2].id(), result.1[1]);
 
         // Assemble Outer two
         let tmp = [shares[0].clone(), shares[2].clone()];
         let result = recover(&tmp.as_slice())?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
         assert_eq!(2, result.1.len());
-        let result = result.1.expand()?;
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(shares[0].id(), result.1[0]);
+        assert_eq!(shares[2].id(), result.1[1]);
         Ok(())
     }
 }

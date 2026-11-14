@@ -4,6 +4,7 @@ extern crate impl_ops;
 use std::fmt::Debug;
 
 use ctutils::CtEq;
+use shake::digest::{array::Array, consts::U32};
 
 use crate::errors::{
     ADSSError::{self, *},
@@ -19,6 +20,8 @@ mod oracles;
 mod s1;
 
 const SEC_PARAM_BYTES: usize = 32;
+#[allow(non_camel_case_types)]
+type SEC_PARAM_ARRAY_LEN = U32;
 
 // Access structures and encodings
 // We reserve all encodings starting with a 0 byte for the future
@@ -78,7 +81,7 @@ impl TryFrom<&[u8]> for ThresholdAccess {
 pub struct Share {
     pub(crate) id: u8,
     pub(crate) access_structure: ThresholdAccess,
-    pub(crate) secret_part: Vec<u8>,
+    pub(crate) secret_part: [u8; SEC_PARAM_BYTES],
     pub(crate) public_part: Vec<u8>,
     pub(crate) tag: Vec<u8>,
 }
@@ -132,7 +135,7 @@ impl PartialEq for Share {
 #[derive(Clone, Eq)]
 pub struct CompactShare {
     pub(crate) id: u8,
-    pub(crate) secret_part: Vec<u8>,
+    pub(crate) secret_part: [u8; SEC_PARAM_BYTES],
 }
 
 impl ShareInfo for CompactShare {
@@ -221,7 +224,7 @@ pub trait ShareCollection<S: ShareInfo>: Clone + CommonInfo {
             Share {
                 id: 0,
                 access_structure: self.access_structure()?,
-                secret_part: vec![],
+                secret_part: [0u8; SEC_PARAM_BYTES],
                 public_part: self.public_part()?.to_vec(),
                 tag: self.aad()?.to_vec(),
             };
@@ -229,7 +232,7 @@ pub trait ShareCollection<S: ShareInfo>: Clone + CommonInfo {
         ];
         for (dest, src) in result.iter_mut().zip(info) {
             dest.id = src.id();
-            dest.secret_part.extend_from_slice(src.secret_part());
+            dest.secret_part.copy_from_slice(src.secret_part());
         }
         Ok(result)
     }
@@ -240,7 +243,7 @@ pub trait ShareCollection<S: ShareInfo>: Clone + CommonInfo {
             .iter()
             .map(|i| CompactShare {
                 id: i.id(),
-                secret_part: i.secret_part().to_vec(),
+                secret_part: i.secret_part().try_into().unwrap(),
             })
             .collect();
         Ok(CompactShareCollection {
@@ -397,7 +400,7 @@ impl ShareCollection<Share> for &[Share] {
 pub fn share(
     access_structure: ThresholdAccess,
     message: &[u8],
-    r: &[u8],
+    r: &Array<u8, SEC_PARAM_ARRAY_LEN>,
     aad: &[u8],
 ) -> ADSSResult<CompactShareCollection> {
     ax::share(access_structure, message, r, aad)
@@ -405,13 +408,69 @@ pub fn share(
 
 pub fn recover<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
     ax::recover(shares)
 }
 
 #[cfg(feature = "ex")]
 pub fn recover_error_correction<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
     ex::recover(shares)
+}
+
+#[cfg(feature = "getrandom")]
+pub fn share_randomized(
+    access_structure: ThresholdAccess,
+    message: &[u8],
+    aad: &[u8],
+) -> ADSSResult<CompactShareCollection> {
+    use rand::{Rng, rngs::StdRng};
+
+    let mut r = Array([0u8; SEC_PARAM_BYTES]);
+    let mut rng: StdRng = rand::make_rng();
+    rng.fill_bytes(&mut r);
+    ax::share(access_structure, message, &r, aad)
+}
+
+// TODO: Define share serialization
+// TODO: Test vectors
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "getrandom")]
+    #[test]
+    fn random_is_random() -> ADSSResult<()> {
+        let message = b"something secret";
+        let aad = b"Some aad value";
+        let access_structure = ThresholdAccess::new(2, 2)?;
+
+        let shares1 = share_randomized(access_structure, message, aad)?;
+        let shares2 = share_randomized(access_structure, message, aad)?;
+
+        assert_ne!(shares1.info()?[0], shares2.info()?[0]);
+        assert_ne!(shares1.info()?[1], shares2.info()?[1]);
+
+        let (recovered, _, _) = recover(&shares1)?;
+        assert_eq!(message, recovered.as_slice());
+        let (recovered, _, _) = recover(&shares2)?;
+        assert_eq!(message, recovered.as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn random_deterministic() -> ADSSResult<()> {
+        let message = b"something secret";
+        let aad = b"Some aad value";
+        let access_structure = ThresholdAccess::new(2, 2)?;
+        let coins = Array([0u8; SEC_PARAM_BYTES]);
+
+        let shares1 = share(access_structure, message, &coins, aad)?;
+        let shares2 = share(access_structure, message, &coins, aad)?;
+
+        assert_eq!(shares1, shares2);
+        Ok(())
+    }
 }

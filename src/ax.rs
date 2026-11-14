@@ -1,21 +1,17 @@
 use ctutils::CtEq;
-use shake::{ExtendableOutput, XofReader};
+use shake::{ExtendableOutput, XofReader, digest::{array::Array, consts::U32}};
 
 use crate::{
-    CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo,
-    ThresholdAccess,
-    errors::{
+    CompactShare, CompactShareCollection, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{
         ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
         ADSSResult,
-    },
-    oracles::{ax_cprf, ax_dprf, ax_hash, multi_hash_part},
-    s1,
+    }, oracles::{ax_cprf, ax_dprf, ax_hash, multi_hash_part}, s1,
 };
 
 pub(crate) fn share(
     access_structure: ThresholdAccess,
     message: &[u8],
-    r: &[u8],
+    r: &Array<u8, SEC_PARAM_ARRAY_LEN>,
     aad: &[u8],
 ) -> ADSSResult<CompactShareCollection> {
     if r.len() != SEC_PARAM_BYTES {
@@ -50,7 +46,7 @@ pub(crate) fn share(
 
 pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
     let info = shares.info()?;
     let t = info.len();
     let access_structure = shares.access_structure()?;
@@ -61,7 +57,7 @@ pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
         shares: vec![
             CompactShare {
                 id: 0,
-                secret_part: vec![]
+                secret_part: [0u8; SEC_PARAM_BYTES]
             };
             t
         ],
@@ -71,9 +67,9 @@ pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     };
     for (dest, src) in inner_shares.shares.iter_mut().zip(info.iter()) {
         dest.id = src.id();
-        dest.secret_part.extend_from_slice(src.secret_part());
+        dest.secret_part.copy_from_slice(src.secret_part());
     }
-    let (k, _) = s1::recover(&inner_shares)?;
+    let (k, ids) = s1::recover(&inner_shares)?;
     let mut m = ax_cprf(&k, c.len());
     for (dst, src) in m.iter_mut().zip(c.iter()) {
         *dst ^= src;
@@ -89,7 +85,7 @@ pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     if j_wrong.or(k_wrong).to_bool() {
         Err(IntegrityError)
     } else {
-        Ok((m, r, shares.compact()?))
+        Ok((m, r, ids))
     }
 }
 
@@ -148,7 +144,7 @@ mod test {
 
         let secret = b"Secret message";
         let aad = b"Some aad";
-        let coins = b"Yellow SubmarineYellow Submarine";
+        let coins = b"Yellow SubmarineYellow Submarine".into();
 
         let shares = share(access_structure, secret, coins, aad)?;
         assert_eq!(aad, shares.aad()?);
@@ -160,36 +156,29 @@ mod test {
 
         let result = recover(&shares)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(shares.info()?.len(), result.2.info()?.len());
-        let result = result.2.expand()?;
-        for v in shares.iter().zip(result.iter()) {
-            assert_eq!(v.0, v.1);
-        }
+        assert_eq!(shares.ids()?, result.2);
 
         // Assemble from first two
         let result = recover(&&shares[0..2])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[1], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[0].id(), result.2[0]);
+        assert_eq!(shares[1].id(), result.2[1]);
 
         // Assemble from last two
         let result = recover(&&shares[1..3])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[1], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[1].id(), result.2[0]);
+        assert_eq!(shares[2].id(), result.2[1]);
 
         // Assemble Outer two
         let tmp = [shares[0].clone(), shares[2].clone()];
         let result = recover(&tmp.as_slice())?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[0].id(), result.2[0]);
+        assert_eq!(shares[2].id(), result.2[1]);
         Ok(())
     }
 }

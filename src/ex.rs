@@ -9,8 +9,8 @@ use crate::{
 
 pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> {
-    let mut result: Option<(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection)> = None;
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
+    let mut result: Option<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> = None;
     let mut inner = ShareCollectionImpl::<I> {
         shares: vec![],
         access_structure: shares.access_structure()?,
@@ -37,20 +37,19 @@ pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
 }
 
 fn compatibleResults(
-    first: &(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection),
-    second: &(Vec<u8>, [u8; SEC_PARAM_BYTES], CompactShareCollection),
+    first: &(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>),
+    second: &(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>),
 ) -> ADSSResult<bool> {
     let secret_mismatch = first.0.ct_eq(&second.0).not();
     let r_mismatch = first.1.ct_eq(&second.1).not();
     if secret_mismatch.or(r_mismatch).to_bool() {
         return Ok(false);
     }
-    if second.2.shares_len()? >= first.2.shares_len()? {
+    if second.2.len() >= first.2.len() {
         return Ok(false);
     }
-    let first_ids = first.2.ids()?;
-    for x in second.2.ids()? {
-        if !first_ids.contains(&x) {
+    for x in &second.2 {
+        if !first.2.contains(&x) {
             return Ok(false);
         }
     }
@@ -78,7 +77,7 @@ mod test {
     use super::*;
     use ax::share;
     use hex_literal::hex;
-    use shake::{ExtendableOutput, Shake128, Update};
+    use shake::{ExtendableOutput, Shake128, Update, digest::array::Array};
 
     #[test]
     fn smoke_share_split() -> ADSSResult<()> {
@@ -86,7 +85,7 @@ mod test {
 
         let secret = b"Secret message";
         let aad = b"Some aad";
-        let coins = b"Yellow SubmarineYellow Submarine";
+        let coins = b"Yellow SubmarineYellow Submarine".into();
 
         let shares = share(access_structure, secret, coins, aad)?;
         assert_eq!(aad, shares.aad()?);
@@ -98,36 +97,30 @@ mod test {
 
         let result = recover(&shares)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(shares.info()?.len(), result.2.info()?.len());
-        let result = result.2.expand()?;
-        for v in shares.iter().zip(result.iter()) {
-            assert_eq!(v.0, v.1);
-        }
+        assert_eq!(shares.ids()?, result.2);
+        
 
         // Assemble from first two
         let result = recover(&&shares[0..2])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[1], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[0].id(), result.2[0]);
+        assert_eq!(shares[1].id(), result.2[1]);
 
         // Assemble from last two
         let result = recover(&&shares[1..3])?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[1], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[1].id(), result.2[0]);
+        assert_eq!(shares[2].id(), result.2[1]);
 
         // Assemble Outer two
         let tmp = [shares[0].clone(), shares[2].clone()];
         let result = recover(&tmp.as_slice())?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert_eq!(shares[0], result[0]);
-        assert_eq!(shares[2], result[1]);
+        assert_eq!(2, result.2.len());
+        assert_eq!(shares[0].id(), result.2[0]);
+        assert_eq!(shares[2].id(), result.2[1]);
 
         // One corrupt share (2)
         let mut tmp = shares.clone();
@@ -135,11 +128,10 @@ mod test {
 
         let result = recover(&tmp)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        let result = result.2.expand()?;
-        assert_eq!(2, result.len());
-        assert!(result.ids()?.contains(&1));
-        assert!(result.ids()?.contains(&3));
-        assert!(!result.ids()?.contains(&2));
+        assert_eq!(2, result.2.len());
+        assert!(result.2.contains(&1));
+        assert!(result.2.contains(&3));
+        assert!(!result.2.contains(&2));
         Ok(())
     }
 }

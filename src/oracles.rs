@@ -15,7 +15,7 @@ fn sponge() -> Shake256 {
 }
 
 pub(crate) fn multi_hash_part(h: &mut Shake256, data: &[u8]) {
-    let len = data.len() as u64;
+    let len = data.len() as u32;
     h.update(&len.to_be_bytes());
     h.update(data);
 }
