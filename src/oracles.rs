@@ -8,6 +8,7 @@ const AX_HASH_DOMAIN_SEP: &[u8; 18] = b"C2SP/ADSS/AX/HASH:";
 const AX_PRF_DOMAIN_SEP: &[u8; 17] = b"C2SP/ADSS/AX/PRF:";
 const AX_CPRF_DOMAIN_SEP: &[u8; 2] = b"C:"; // Must come after AX_PRF_DOMAIN_SEP
 const AX_DPRF_DOMAIN_SEP: &[u8; 2] = b"D:"; // Must come after AX_PRF_DOMAIN_SEP
+const AX_KPRF_DOMAIN_SEP: &[u8; 2] = b"K:"; // Must come after AX_PRF_DOMAIN_SEP
 const S1_XOF_DOMAIN_SEP: &[u8; 17] = b"C2SP/ADSS/S1/XOF:";
 
 fn sponge() -> Shake256 {
@@ -44,6 +45,15 @@ pub(crate) fn ax_cprf(key: &[u8], length: usize) -> Vec<u8> {
 pub(crate) fn ax_dprf(key: &[u8]) -> [u8; SEC_PARAM_BYTES] {
     let mut prf = ax_prf(key);
     multi_hash_part(&mut prf, AX_DPRF_DOMAIN_SEP);
+    let mut result = [0u8; SEC_PARAM_BYTES];
+    prf.finalize_xof_into(&mut result);
+    result
+}
+
+pub(crate) fn ax_kprf(key: &[u8], aad: &[u8]) -> [u8; SEC_PARAM_BYTES] {
+    let mut prf = ax_prf(key);
+    multi_hash_part(&mut prf, AX_KPRF_DOMAIN_SEP);
+    multi_hash_part(&mut prf, aad);
     let mut result = [0u8; SEC_PARAM_BYTES];
     prf.finalize_xof_into(&mut result);
     result

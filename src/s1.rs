@@ -46,10 +46,10 @@ pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSRe
     shares.access_structure()?;
     // Checks for duplicate Ids
     let ids: Vec<GF256> = shares.ids()?.iter().map(|i| i.into()).collect();
-    // We don't support aad or public data
-    if !shares.aad()?.is_empty() || !shares.public_part()?.is_empty() {
-        return Err(UnsupportedShareType);
-    }
+    // // We don't support aad or public data
+    // if !shares.aad()?.is_empty() || !shares.public_part()?.is_empty() {
+    //     return Err(UnsupportedShareType);
+    // }
     let mut result = vec![0u8; shares.info()?[0].secret_part().len()];
     for (idx, rval) in result.iter_mut().enumerate() {
         let v: Vec<GF256> = shares

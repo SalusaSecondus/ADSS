@@ -5,7 +5,7 @@ use crate::{
     CompactShare, CompactShareCollection, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{
         ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
         ADSSResult,
-    }, oracles::{ax_cprf, ax_dprf, ax_hash, multi_hash_part}, s1,
+    }, oracles::{ax_cprf, ax_dprf, ax_hash, ax_kprf, multi_hash_part}, s1,
 };
 
 pub(crate) fn share(
@@ -19,25 +19,26 @@ pub(crate) fn share(
     }
     // ‖ K ‖ L ← H 4κ (A,M,R,T) where |J | = 2κ and |K | = |L | = κ
     let (j, k, l) = jkl(access_structure, message, r, aad)?;
+    let k_prime = ax_kprf(&k, aad);
+
     // C ← M ⊕ f(ε);
-    let mut c = ax_cprf(&k, message.len());
+    let mut c = ax_cprf(&k_prime, message.len());
     for (dest, src) in c.iter_mut().zip(message.iter()) {
         *dest ^= src;
     }
     let c = c;
-
     // D ← R ⊕ f(0)
-    let mut d = ax_dprf(&k);
+    let mut d = ax_dprf(&k_prime);
     for (dest, src) in d.iter_mut().zip(r) {
         *dest ^= src;
     }
     let d = d;
-
+    
     let mut public_part = vec![];
     public_part.extend_from_slice(&c);
     public_part.extend_from_slice(&d);
     public_part.extend_from_slice(&j);
-
+    
     let mut shares = s1::share(access_structure, &k, &l)?;
     shares.public_part = public_part;
     shares.tag = aad.to_vec();
@@ -47,34 +48,19 @@ pub(crate) fn share(
 pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
     shares: &C,
 ) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
-    let info = shares.info()?;
-    let t = info.len();
+
     let access_structure = shares.access_structure()?;
     let public_info = shares.public_part()?;
     let (c, d, j) = split_cdj(public_info)?;
 
-    let mut inner_shares = CompactShareCollection {
-        shares: vec![
-            CompactShare {
-                id: 0,
-                secret_part: [0u8; SEC_PARAM_BYTES]
-            };
-            t
-        ],
-        access_structure,
-        public_part: vec![],
-        tag: vec![],
-    };
-    for (dest, src) in inner_shares.shares.iter_mut().zip(info.iter()) {
-        dest.id = src.id();
-        dest.secret_part.copy_from_slice(src.secret_part());
-    }
-    let (k, ids) = s1::recover(&inner_shares)?;
-    let mut m = ax_cprf(&k, c.len());
+
+    let (k, ids) = s1::recover(shares)?;
+    let k_prime = ax_kprf(&k, shares.aad()?);
+    let mut m = ax_cprf(&k_prime, c.len());
     for (dst, src) in m.iter_mut().zip(c.iter()) {
         *dst ^= src;
     }
-    let mut r = ax_dprf(&k);
+    let mut r = ax_dprf(&k_prime);
     for (dst, src) in r.iter_mut().zip(d.iter()) {
         *dst ^= src;
     }

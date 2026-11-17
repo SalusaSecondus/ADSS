@@ -18,9 +18,12 @@ No fancier access control structures or logic.
 
 ## Notation and Terms
 
-We use the term "byte" to refer to an 8-bit value (sometimes called an "octet"). We use the term "bytestring" to refer to an ordered sequence of bytes. We assume that an underlying hash function implementation handles bit ordering when hashing bytes and bytestrings.
+We use the term "byte" to refer to an 8-bit value (sometimes called an "octet"). We use the term "bytestring" to refer to an ordered sequence of bytes.
+Bytestrings are interchangeable with an array of bytes.
+An empty bytestring can be represented as `""`, `''`, or `[]`.
 
 We will use `||` to concatenate bytes, bytestrings, and values.
+This includes appending elements to arrays.
 We will implicitly `ENCODE` and `DECODE` when necessary and obvious.
 
 We use `^` to represent a bitwise xor operation.
@@ -35,7 +38,7 @@ We use the terms SHOULD and SHOULD NOT to describe behaviors that are considered
 We use the term MAY to indicate optional behavior that is not required for compliance with the specification, but that implementers can include at their own discretion without compromising specification compliance. For example, implementations MAY emit warnings or raise errors when known-weak hash functions are used. Implementers are encouraged to document such decisions.
 
 Some of the math is done relative to GF(256) (also just called GF256), the finite field with exactly 256 elements.
-GF(256) addition is notated as `(+)`. GF(256) multiplication is notated as `(*)`. GF(256) division is written as a fraction.
+GF(256) addition is notated as `(+)`. GF(256) multiplication is notated as `(*)`. GF(256) division is written as a (/).
 
 *All* values in this specification are unsigned.
 
@@ -59,6 +62,7 @@ We define the following domain separation constants (ASCII, non-null terminated)
 - AX_PRF_DOMAIN_SEP: `C2SP/ADSS/AX/PRF:`
 - AX_CPRF_DOMAIN_SEP: `C:`
 - AX_DPRF_DOMAIN_SEP: `D:`
+- AX_KPRF_DOMAIN_SEP: `K:`
 
 #### SHAKE256
 
@@ -99,13 +103,41 @@ ax_dprf(key):
     HashItem(prf, AX_PRF_DOMAIN_SEP)
     HashItem(prf, key)
     HashItem(prf, AX_DPRF_DOMAIN_SEP)
-    return hash.xof(32) // Return 32 bytes of output
+    return prf.xof(32) // Return 32 bytes of output
 ```
 return hash.xof(256)
 
+#### ax_cprf
+
+`ax_cprf` is a PRF which produces an arbitrary length output.
+
+```
+ax_cprf(key, length_in_bytes):
+    prf = SHAKE256
+    HashItem(prf, AX_PRF_DOMAIN_SEP)
+    HashItem(prf, key)
+    HashItem(prf, AX_CPRF_DOMAIN_SEP)
+    return prf.xof(length_in_bytes)
+  
+```
+
+#### ax_kprf
+
+`ax_kprf` is a PRF (keyed hash function) which produces 32 bytes of output.
+
+```
+ax_kprf(key, aad):
+    prf = SHAKE256
+    HashItem(prf, AX_PRF_DOMAIN_SEP)
+    HashItem(prf, key)
+    HashItem(prf, AX_KPRF_DOMAIN_SEP)
+    HashItem(prf, aad)
+    return prf.xof(32) // Return 32 bytes of output
+```
+
 #### s1_xof
 
-`s1_xof` returns an XOF which can be used to produce arbitrarily long sequences of pseudo-random data.
+`s1_xof` **returns** an XOF which can be used to produce arbitrarily long sequences of pseudo-random data.
 
 ```
 s1_xof(coins):
@@ -114,6 +146,10 @@ s1_xof(coins):
     HashItem(xof, coins)
     return xof
 ```
+
+The resulting XOF is passed *by reference*.
+This means that it can be passed into a method, which uses it for output, and the resulting state is modified.
+In other words if we define a function `foo(x): return x.xof(32)` then `foo(x) || foo(x) == x.xof(32)`
 
 ### GF(256)
 
@@ -191,7 +227,10 @@ It has two elements:
 - `shares[]` (an array of `CompactShare`)
 - `common` (`CommonInfo`)
 
-There is no need for these structure to be serialized or deserialized and so `ENCODE` / `DECODE` is not defined for it.
+There is no need for this structure to be serialized or deserialized and so `ENCODE` / `DECODE` is not defined for it.
+
+We define `RecoveryInput.ids() -> id[]` as a function which returns an array of the `id` values of all the `shares` in the `RecoveryInput` in the same order as the shares.
+Similarly we define `RecoveryInput.secrets() -> byte[][]` as a function which returns an array of all of the `secret_part` values of all of the `shares` in the same order as the shares.
 
 `RecoveryInput` may be split into `CompactShares` and a `CommonInfo` in the trivial way.
 
@@ -208,7 +247,7 @@ There is no need for these structure to be serialized or deserialized and so `EN
 
 ### GF(256)
 
-All finite-field math and encodings is *exactly that* describe in the [2010 draft RFC by McGrew, Patnala, and Hoenes](https://datatracker.ietf.org/doc/html/draft-mcgrew-tss-03).
+All finite-field math and encodings is *exactly that* describe in the [2010 draft RFC by McGrew, Patnala, and Hoenes](https://datatracker.ietf.org/doc/html/draft-mcgrew-tss-03). The differences are around share encoding and the use of an XOF rather than a random number generator.
 Portions are duplicated here completeness.
 
 All GF operations MUST be constant-time.
@@ -226,7 +265,7 @@ GF_MULT(x, y):
    return ct_select(is_zero, 0, result)
 ```
 
-Division:
+Division `(/)`:
 ```
 GF_DIV(x, y):
    is_zero = ct_or(ct_zero(x), ct_zero(y))
@@ -310,6 +349,243 @@ GF_DIV(x, y):
 13,    99,  140,  128,  192,  247,  112,    7
 ```
 
+## Construction
+
+Following the [Bellare, et. al. construction](https://eprint.iacr.org/2020/800), ADSS is built up in three layers: S1, AX, and EX. S1 is purely internal and is mathematically equivalent to the McGrew, et. al. construction. AX builds on S1 and provides the primary ADSS interface. EX builds on AX and provides an error correcting recovery mode.
+
+### S1
+
+#### share_byte
+
+Byte sharing (`share_byte`) takes in single secret byte, an XOF, and an ThresholdAccess.
+It returns a number of bytes equal to `ThresholdAccess.total`.
+
+```
+share_byte(secret_byte, x, access_structure):
+    coefs = [secret_byte]
+    // Expand coefs to be `threshold` bytes long
+    // where the first byte is secret_byte and the others
+    // are the output of the xof
+    coefs = coefs || x.xof(access_structure.threshold - 1)
+
+    shares = []
+    for i in 1..=access_structure.total:
+      shares[i] = ss_f(i, coefs)
+    return shares
+```
+
+It uses `ss_f(x, A)` internally where `x` is a positive integer and `A` is an array of bytes.
+`ss_f` treats both `x` and `A` as consisting of GF(256) elements internally.
+
+```
+ss_f(x, A):
+  x_i = 1 // This is over GF(256)
+  result = 0 // This is over GF(256)
+  for i in 0..m:
+    tmp = A[i] (*) x_i
+    result = result (+) tmp
+    x_i = x_i (*) x
+  return result
+```
+
+#### s1_share
+
+Sharing a byte string is just the concatenation of shared bytes. It takes in a secret, a 32 byte value `coins`, and a ThresholdAccess. It returns an array of bytestrings each containing a single share. It returns a list of `CompactShares`.
+
+
+```
+s1_share(secret, coins, access_structure):
+  x = s1_xof(coins)
+  shares[]
+  for i in 0..access_structure.total:
+    shares[i].id = i + 1 // IDs must not be zero
+  for byte in secret:
+    partial = share_byte(byte, x, access_structure)
+    for i in 0..access_structure.total:
+      shares[i].secret_part = shares[i].secret_part || partial[i]
+  return shares
+```
+
+#### recover_byte
+
+`recover_byte` reconstructs a single byte.
+It takes in an array of IDs and an array of bytes. These two arrays are of equal length.
+It treats both as elements of GF(256). It returns a single byte.
+
+```
+recover_byte(ids, v):
+  result = 0 // GF(256)
+  for i in 0..len(ids):
+    tmp = li(i, ids) (*) v[i]
+    result = result (+) tmp
+  return result
+```
+
+
+It uses `li` internally which takes in an integer and an array of GF(256) elements.
+
+```
+li(i, u):
+  result = 0 // GF(256)
+  ui = u[i]
+  for j in 0..len(u):
+    if i != j:
+      bottom = ui (+) u[j]
+      tmp = u[j] (/) bottom
+      result = result (*) tmp
+  return result
+```
+
+#### s1_recover
+
+S1 recovers a bytestring using `s1_recover` which takes in a `RecoveryInput` object and returns the recovered secret.
+
+```
+s1_recover(input):
+  ids = input.ids()
+  // All of these checks should have occured when constructing the RecoveryInput
+  if len(ids) < input.common.access_threshold.threshold:
+    return ERROR // Insufficient pieces to recover
+  if len(ids) > input.common.access_threshold.total:
+    return ERROR // Too many pieces provided. Should not be possible.
+  if ids.contains_duplicates()
+    return ERROR // Duplicate IDs are not allowed
+  secret_parts = input.secret_parts()
+  result = ''
+  for i in 0..32: // Secret parts are always 32 bytes long
+    v = ''
+    for part in secret_parts:
+      v = v || part[i]
+    result = result || recover_byte(ids, v)
+  return result
+```
+
+## AX
+
+The AX construction adds integrity and other security properties to the underlying S1 construction.
+It provides our two main publicly exposed APIs: `share_secret` and `recover_secret`.
+This follows the construction from [Bellare, et. al.](https://eprint.iacr.org/2020/800), section 7.2.
+There are three differences:
+
+1. Exact construction of domain separation
+2. Encoding of shares
+3. An extra PRF step transforming `k` into `k_prime` which prevents recovery with the wrong aad.
+
+#### share_secret (Public)
+
+`share_secret` takes in a secret to share, a `ThresholdAccess` structure, AAD, and a 32-byte initialization vector.
+It returns a `RecoveryInput` object which can then be converted into the shares to distribute to the parties.
+
+```
+share_secret(secret, access_structure, aad, iv):
+  if len(iv) != 32:
+    return ERROR
+  // j is 64 bytes, k and l are both 32 bytes
+  (j[64], k[32], l[32]) = axHash(access_structure, secret, iv, aad)
+  shares = s1_share(k, l, access_structure)
+
+  k_prime = ax_kprf(k, aad)
+  c = secret ^ ax_cprf(k_prime, len(secret))
+  d = iv ^ ax_dprf(k_prime)
+
+  public_part = c || d || j
+  common = CommonInfo {
+    access_structure
+    aad
+    public_part
+  }
+  return RecoveryInput{
+    shares
+    common
+  }
+```
+
+#### recover_secret (Public)
+
+`recover_secret` takes in a `RecoveryInput` object and returns either the recovered secret or an error.
+
+An implementation MAY also return the recovered `iv` value`.
+By doing this, the secret may be shared again with the recovered `iv` to produce new shares, replace lost shares, or verify that the original production was done honestly.
+
+```
+recover_secret(recovery_input):
+  k = s1_recover(recovery_input)
+  k_prime = ax_kprf(k, recovery_input.common.aad)
+  // The len(c) == len(recovery_input.common.public_part) - 96
+  (c, d[32], j[64]) = recovery_input.common.public_part
+  secret = c ^ ax_cprf(k_prime, len(c))
+  iv = d ^ ax_dprf(k_prime)
+  // The final 32 bytes of output are ignored
+  (j_expected[64], k_expected[32], _) = axHash(access_structure, secret, iv, recovery_input.common.aad)
+  j_correct = ct_equal(j_expected, j)
+  k_correct = ct_equal(k_expected, k)
+  if not ct_and(j_correct, k_correct):
+    return ERROR
+  return secret
+```
+## EX (Public, Optional)
+
+The EX layer adds a new recover API which handles corrupted shares.
+Specifically, `recover_from_subset` will recover a secret if and only if:
+1. There is some subset of the shares that can successfully recover a secret.
+2. There are no subsets of the shares which can recover a *different* secret.
+
+In addition to returning the recovered secret, `recover_from_subset` will also return the `iv` and the ids of the *largest* subset which can be used to recover the secret.
+This subset may be equal to the entire set of provided shares.
+This requires the `recover_secret` also returns the `iv`.
+
+```
+recover_from_subset(recovery_input):
+  subsets = plausible_subsets(recovery_input.ids(), recovery_input.common.access_threshold)
+  candidate = NULL
+  for s in subsets:
+    subshares = build_subshares(recovery_input, s)
+    (ax_result, iv) = recover_secret(subshares)
+    if ax_result != ERROR:
+      if candidate == NULL:
+        candidate = (ax_result, iv, s)
+      else if len(s) == len(candidate.s):
+        return ERROR
+      else if not compatible_result(candidate, (ax_result, iv, s)):
+        return ERROR
+  if result != NULL
+    return result
+  else
+    return ERROR
+```
+
+`recover_from_subset` uses `plausible_subsets(ids[], threshold)` internally where `ids[]` is an array of integers and `threshold` is an integer.
+It returns an **array of arrays** of numbers. Specifically, it returns, in decreasing size order, all unique subsets of `ids` that contain at least `threshold` elements.
+
+```
+plausible_subsets(ids[], threshold):
+  result = []
+  for i in len(ids)..=threshold: // i decreases by one everytime
+    result = result || combinations(ids, i) // All unique subsets of ids containing exactly i elements
+  return result
+```
+
+`recover_from_subset` uses `compatible_result(a, b)` which takes in two tuples of `(m, iv, ids)` where `m` and `iv` are bytestrings and `ids` is an array of numbers.
+
+```
+compatible_result(a, b):
+  if len(a.ids) != len(b.ids):
+    return FALSE
+  if !is_subset(b, a):
+    return FALSE
+  m_correct = ct_equal(a.m, b.m)
+  iv_correct = ct_equal(a.iv, b.iv)
+  if ct_and(m_correct, iv_correct):
+    return TRUE
+  else
+    return FALSE
+```
+
+`compatible_result` uses `is_subset(a, b)` which returns true if-and-only-if `a` is a subset of `b`.
+
+`recover_from_subset` uses `build_subshares(RecoveryInfo, ids)` which returns a new instance of `RecoveryInfo` with identical `CommonInfo` but only those shares whose `id` is included in `ids`.
+
+
 ## TODOs
 
 - [ ] Security Properties
@@ -317,3 +593,4 @@ GF_DIV(x, y):
   - Computationally secure (256 bits of security), but not information theoretically secure
   - Not additively homomorphic
 - [ ] Serialization
+- [ ] Describe implications of constant IV
