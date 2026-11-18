@@ -4,7 +4,7 @@ extern crate impl_ops;
 use std::fmt::Debug;
 
 use ctutils::CtEq;
-use shake::digest::{array::Array, consts::U32};
+use shake::digest::{array::Array, consts::{U8, U32}};
 
 use crate::errors::{
     ADSSError::{self, *},
@@ -22,6 +22,9 @@ mod s1;
 const SEC_PARAM_BYTES: usize = 32;
 #[allow(non_camel_case_types)]
 type SEC_PARAM_ARRAY_LEN = U32;
+const COMPACT_SHARE_TYPE_BYTE: u8 = 1;
+const COMMON_INFO_TYPE_BYTE: u8 = 2;
+const EXPANDED_SHARE_TYPE_BYTE: u8 = 3;
 
 // Access structures and encodings
 // We reserve all encodings starting with a 0 byte for the future
@@ -137,6 +140,37 @@ pub struct CompactShare {
     pub(crate) id: u8,
     pub(crate) secret_part: [u8; SEC_PARAM_BYTES],
 }
+
+impl From<&CompactShare> for [u8; 34] {
+    fn from(value: &CompactShare) -> Self {
+        let mut result = [0u8; 34];
+        result[0] = COMPACT_SHARE_TYPE_BYTE;
+        result[1] = value.id;
+        result[2..].copy_from_slice(&value.secret_part);
+        result
+    }
+}
+
+impl TryFrom<&[u8]> for CompactShare {
+    type Error = ADSSError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != 34 {
+            return Err(ADSSError::CompactShareWrongLength(value.len(), 34))
+        }
+        if value[0] != COMPACT_SHARE_TYPE_BYTE {
+            return Err(ADSSError::WrongTypeByte(value[0], COMPACT_SHARE_TYPE_BYTE));
+        }
+        let id = value[1];
+        if id == 0 {
+            return Err(ADSSError::ZeroId);
+        }
+        let mut secret_part = [0u8; SEC_PARAM_BYTES];
+        secret_part.copy_from_slice(&value[2..]);
+        return Ok(CompactShare { id, secret_part })
+    }
+}
+
 
 impl ShareInfo for CompactShare {
     fn id(&self) -> u8 {

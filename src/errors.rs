@@ -18,10 +18,16 @@ pub enum ADSSError {
     ThresholdAccessWrongLength(usize),
     #[error("Invalid encoding for ThresholdAccess: {0}, {1}")]
     InvalidThresholdAccess(u8, u8),
-    #[error("invalid coin length. Had {0} but needed {0}")]
+    #[error("invalid coin length. Had {0} but needed {1}")]
     InvalidCoinLength(usize, usize),
     #[error("reconstruction failed integrity check")]
     IntegrityError,
+    #[error("CompactShare wrong length. Had {0} but needed {1}")]
+    CompactShareWrongLength(usize, usize),
+    #[error("serialized data has wrong type byte. Had {0} but needed {1}")]
+    WrongTypeByte(u8, u8),
+    #[error("id must not have a value of zero")]
+    ZeroId,
 }
 
 pub type ADSSResult<T> = Result<T, ADSSError>;
