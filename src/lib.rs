@@ -4,7 +4,7 @@ extern crate impl_ops;
 use std::{collections::HashSet, fmt::Debug};
 
 use ctutils::CtEq;
-use shake::digest::{array::Array, consts::{U8, U32}};
+use shake::digest::{array::Array, consts::U32};
 
 use crate::errors::{
     ADSSError::{self, *},
@@ -116,7 +116,7 @@ impl TryFrom<&[u8]> for CompactShare {
         }
         let mut secret_part = [0u8; SEC_PARAM_BYTES];
         secret_part.copy_from_slice(&value[2..]);
-        return Ok(CompactShare { id, secret_part })
+        Ok(CompactShare { id, secret_part })
     }
 }
 
@@ -210,14 +210,14 @@ impl TryFrom<&[u8]> for CommonInfo {
         if value.len() < offset + 4 + public_part_len {
             return Err(DataOverflow);
         }
-        let public_part = (&value[offset..offset+public_part_len]).to_vec();
+        let public_part = value[offset..offset+public_part_len].to_vec();
         offset += public_part_len;
         let aad_len = u32::from_be_bytes(value[offset..offset+4].try_into().unwrap()) as usize;
         offset += 4;
         if value.len() != offset + aad_len {
             return Err(DataOverflow);
         }
-        let aad = (&value[offset..]).to_vec();
+        let aad = value[offset..].to_vec();
         Ok(CommonInfo { access_structure, public_part, aad })
     }
 }

@@ -39,7 +39,7 @@ pub(crate) fn share(
     public_part.extend_from_slice(&d);
     public_part.extend_from_slice(&j);
     
-    let mut shares = s1::share(access_structure, &k, &l)?;
+    let shares = s1::share(access_structure, &k, &l)?;
 
     Ok(
         RecoveryInput { shares, common: crate::CommonInfo { access_structure, public_part, aad: aad.to_vec() } }
@@ -52,7 +52,7 @@ pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PA
     let (c, d, j) = split_cdj(public_info)?;
 
 
-    let k = s1::recover(&input)?;
+    let k = s1::recover(input)?;
     let k_prime = ax_kprf(&k, input.common().aad());
     let mut m = ax_cprf(&k_prime, c.len());
     for (dst, src) in m.iter_mut().zip(c.iter()) {

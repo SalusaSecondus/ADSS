@@ -44,7 +44,7 @@ fn compatibleResults(
         return Ok(false);
     }
     for x in &second.2 {
-        if !first.2.contains(&x) {
+        if !first.2.contains(x) {
             return Ok(false);
         }
     }
