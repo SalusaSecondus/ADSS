@@ -1,8 +1,8 @@
 use ctutils::CtEq;
-use shake::{ExtendableOutput, XofReader, digest::{array::Array, consts::U32}};
+use shake::{ExtendableOutput, XofReader, digest::array::Array};
 
 use crate::{
-    CompactShare, CompactShareCollection, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{
+    RecoveryInput, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ThresholdAccess, errors::{
         ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
         ADSSResult,
     }, oracles::{ax_cprf, ax_dprf, ax_hash, ax_kprf, multi_hash_part}, s1,
@@ -13,7 +13,7 @@ pub(crate) fn share(
     message: &[u8],
     r: &Array<u8, SEC_PARAM_ARRAY_LEN>,
     aad: &[u8],
-) -> ADSSResult<CompactShareCollection> {
+) -> ADSSResult<RecoveryInput> {
     if r.len() != SEC_PARAM_BYTES {
         return Err(InvalidCoinLength(r.len(), SEC_PARAM_BYTES));
     }
@@ -40,22 +40,20 @@ pub(crate) fn share(
     public_part.extend_from_slice(&j);
     
     let mut shares = s1::share(access_structure, &k, &l)?;
-    shares.public_part = public_part;
-    shares.tag = aad.to_vec();
-    Ok(shares)
+
+    Ok(
+        RecoveryInput { shares, common: crate::CommonInfo { access_structure, public_part, aad: aad.to_vec() } }
+    )
 }
 
-pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
-    shares: &C,
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
-
-    let access_structure = shares.access_structure()?;
-    let public_info = shares.public_part()?;
+pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES])> {
+    let access_structure = input.common().access_structure();
+    let public_info = input.common().public_part();
     let (c, d, j) = split_cdj(public_info)?;
 
 
-    let (k, ids) = s1::recover(shares)?;
-    let k_prime = ax_kprf(&k, shares.aad()?);
+    let k = s1::recover(&input)?;
+    let k_prime = ax_kprf(&k, input.common().aad());
     let mut m = ax_cprf(&k_prime, c.len());
     for (dst, src) in m.iter_mut().zip(c.iter()) {
         *dst ^= src;
@@ -65,13 +63,13 @@ pub(crate) fn recover<I: ShareInfo, C: ShareCollection<I>>(
         *dst ^= src;
     }
 
-    let (j_prime, k_prime, _) = jkl(access_structure, &m, &r, shares.aad()?)?;
+    let (j_prime, k_prime, _) = jkl(access_structure, &m, &r, input.common().aad())?;
     let j_wrong = j_prime.ct_eq(&j).not();
     let k_wrong = k_prime.as_slice().ct_eq(&k).not();
     if j_wrong.or(k_wrong).to_bool() {
         Err(IntegrityError)
     } else {
-        Ok((m, r, ids))
+        Ok((m, r))
     }
 }
 
@@ -118,11 +116,8 @@ fn split_cdj(
 
 #[cfg(test)]
 mod test {
-    use crate::{CommonInfo, Share};
 
     use super::*;
-    use hex_literal::hex;
-    use shake::{ExtendableOutput, Shake128, Update};
 
     #[test]
     fn smoke_share_split() -> ADSSResult<()> {
@@ -132,39 +127,36 @@ mod test {
         let aad = b"Some aad";
         let coins = b"Yellow SubmarineYellow Submarine".into();
 
-        let shares = share(access_structure, secret, coins, aad)?;
-        assert_eq!(aad, shares.aad()?);
-        let shares = shares.expand()?;
-        assert_eq!(aad, shares.aad()?);
-        for s in &shares {
-            assert_eq!(aad, s.aad()?);
-        }
+        let input = share(access_structure, secret, coins, aad)?;
+        let shares = input.shares();
+        let common = input.common();
+        assert_eq!(aad, input.common().aad());
 
-        let result = recover(&shares)?;
+        let result = recover(&input)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(shares.ids()?, result.2);
+        assert_eq!(&result.1, coins);
 
         // Assemble from first two
-        let result = recover(&&shares[0..2])?;
+        let recovery = RecoveryInput::new(
+            input.shares()[0..2].to_vec(), common.clone())?;
+        let result = recover(&recovery)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.2.len());
-        assert_eq!(shares[0].id(), result.2[0]);
-        assert_eq!(shares[1].id(), result.2[1]);
+        assert_eq!(&result.1, coins);
 
         // Assemble from last two
-        let result = recover(&&shares[1..3])?;
+        let recovery = RecoveryInput::new(
+            input.shares()[1..3].to_vec(), common.clone())?;
+        let result = recover(&recovery)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.2.len());
-        assert_eq!(shares[1].id(), result.2[0]);
-        assert_eq!(shares[2].id(), result.2[1]);
+        assert_eq!(&result.1, coins);
 
         // Assemble Outer two
-        let tmp = [shares[0].clone(), shares[2].clone()];
-        let result = recover(&tmp.as_slice())?;
+        let recovery = RecoveryInput::new(
+            vec![shares[0].clone(), shares[2].clone()], common.clone())?;
+
+        let result = recover(&recovery)?;
         assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.2.len());
-        assert_eq!(shares[0].id(), result.2[0]);
-        assert_eq!(shares[2].id(), result.2[1]);
+        assert_eq!(&result.1, coins);
         Ok(())
     }
 }

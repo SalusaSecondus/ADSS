@@ -28,6 +28,12 @@ pub enum ADSSError {
     WrongTypeByte(u8, u8),
     #[error("id must not have a value of zero")]
     ZeroId,
+    #[error("data too large")]
+    DataOverflow,
+    #[error("insufficient data")]
+    DataUnderflow,
+    #[error("incompatible shares provided")]
+    IncompatibleShares,
 }
 
 pub type ADSSResult<T> = Result<T, ADSSError>;

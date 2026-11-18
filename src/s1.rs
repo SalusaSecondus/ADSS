@@ -3,14 +3,14 @@
 use shake::XofReader;
 
 use crate::{
-    CompactShare, CompactShareCollection, SEC_PARAM_BYTES, ShareCollection, ShareInfo, ThresholdAccess, errors::{ADSSError::UnsupportedShareType, ADSSResult}, gf256::GF256, oracles::s1_xof,
+    CompactShare, RecoveryInput, SEC_PARAM_BYTES, ShareInfo, ShareSlice as _, ThresholdAccess, errors::{ADSSError, ADSSResult}, gf256::GF256, oracles::s1_xof,
 };
 
 pub(crate) fn share(
     access_structure: ThresholdAccess,
     message: &[u8],
     r: &[u8],
-) -> ADSSResult<CompactShareCollection> {
+) -> ADSSResult<Vec<CompactShare>> {
     let r = &mut s1_xof(r);
     let mut shares = vec![
         CompactShare {
@@ -33,33 +33,26 @@ pub(crate) fn share(
             shares[sidx].secret_part[idx] = *val;
         }
     }
-    Ok(CompactShareCollection {
-        shares,
-        access_structure,
-        public_part: vec![],
-        tag: vec![],
-    })
+    Ok(shares)
 }
 
-pub(crate) fn recover<I: ShareInfo, S: ShareCollection<I>>(shares: &S) -> ADSSResult<(Vec<u8>, Vec<u8>)> {
+pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<Vec<u8>> {
     // Ensures that we have enough shares
-    shares.access_structure()?;
-    // Checks for duplicate Ids
-    let ids: Vec<GF256> = shares.ids()?.iter().map(|i| i.into()).collect();
-    // // We don't support aad or public data
-    // if !shares.aad()?.is_empty() || !shares.public_part()?.is_empty() {
-    //     return Err(UnsupportedShareType);
-    // }
-    let mut result = vec![0u8; shares.info()?[0].secret_part().len()];
+    let shares = input.shares();
+    let threshold = input.common().access_structure().threshold();
+    if shares.len() < threshold as usize {
+        return Err(ADSSError::BelowThreshold(shares.len() as u8, threshold));
+    }
+    let ids: Vec<GF256> = shares.ids().iter().map(|i| i.into()).collect();
+    let mut result = vec![0u8; shares[0].secret_part().len()];
     for (idx, rval) in result.iter_mut().enumerate() {
         let v: Vec<GF256> = shares
-            .info()?
             .iter()
             .map(|s| s.secret_part()[idx].into())
             .collect();
         *rval = i(&ids, &v).into();
     }
-    Ok((result, shares.ids()?.to_vec()))
+    Ok(result)
 }
 
 fn split_byte<X>(secret: GF256, m: u8, n: u8, xof: &mut X) -> Vec<u8>
@@ -113,6 +106,8 @@ fn i(u: &[GF256], v: &[GF256]) -> GF256 {
 
 #[cfg(test)]
 mod test {
+    use crate::CommonInfo;
+
     use super::*;
 
 
@@ -123,33 +118,28 @@ mod test {
         let secret = b"Secret message that is 32 bytes!";
 
         let shares = share(access_structure, secret, b"coins")?;
-        let shares = shares.expand()?;
 
-        let result = recover(&shares)?;
-        assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(shares.ids()?, result.1);
+        let common = CommonInfo::new(access_structure, &[], &[])?;
+        let recovery = RecoveryInput::new(shares.clone(), common.clone())?;
+        let result = recover(&recovery)?;
+        assert_eq!(secret.as_slice(), result.as_slice());
 
         // Assemble from first two
-        let result = recover(&&shares[0..2])?;
-        assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.1.len());
-        assert_eq!(shares[0].id(), result.1[0]);
-        assert_eq!(shares[1].id(), result.1[1]);
+        let recovery = RecoveryInput::new(shares[0..2].to_vec(), common.clone())?;
+        let result = recover(&recovery)?;
+        assert_eq!(secret.as_slice(), result.as_slice());
 
         // Assemble from last two
-        let result = recover(&&shares[1..3])?;
-        assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.1.len());
-        assert_eq!(shares[1].id(), result.1[0]);
-        assert_eq!(shares[2].id(), result.1[1]);
+        let recovery = RecoveryInput::new(shares[1..3].to_vec(), common.clone())?;
+        let result = recover(&recovery)?;
+        assert_eq!(secret.as_slice(), result.as_slice());
 
         // Assemble Outer two
-        let tmp = [shares[0].clone(), shares[2].clone()];
-        let result = recover(&tmp.as_slice())?;
-        assert_eq!(secret.as_slice(), result.0.as_slice());
-        assert_eq!(2, result.1.len());
-        assert_eq!(shares[0].id(), result.1[0]);
-        assert_eq!(shares[2].id(), result.1[1]);
+        let recovery = RecoveryInput::new(
+            vec![shares[0].clone(), shares[2].clone()], common.clone())?;
+
+        let result = recover(&recovery)?;
+        assert_eq!(secret.as_slice(), result.as_slice());
         Ok(())
     }
 }
