@@ -90,7 +90,7 @@ axHash(array):
     HashItem(hash, AX_HASH_DOMAIN_SEP)
     for i in array:
       HashItem(hash, i)
-    return hash.xof(256) // Return 256 bytes of output
+    return hash.xof(128) // Return 128 bytes of output
 ```
 
 #### ax_dprf
@@ -426,7 +426,7 @@ It uses `li` internally which takes in an integer and an array of GF(256) elemen
 
 ```
 li(i, u):
-  result = 0 // GF(256)
+  result = 1 // GF(256)
   ui = u[i]
   for j in 0..len(u):
     if i != j:
