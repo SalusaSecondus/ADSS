@@ -18,6 +18,8 @@ mod ex;
 mod gf256;
 mod oracles;
 mod s1;
+#[cfg(test)]
+mod kats;
 
 const SEC_PARAM_BYTES: usize = 32;
 #[allow(non_camel_case_types)]
@@ -290,6 +292,10 @@ impl RecoveryInput {
             }
         }
         Ok(RecoveryInput { shares, common })
+    }
+
+    pub fn from_expanded(shares: &[ExpandedShare]) -> ADSSResult<RecoveryInput> {
+        todo!()
     }
 
     pub fn shares(&self) -> &[CompactShare] {
