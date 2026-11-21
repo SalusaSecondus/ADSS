@@ -16,6 +16,7 @@ pub(crate) fn share(
         CompactShare {
             id: 0,
             secret_part: [0u8; SEC_PARAM_BYTES],
+            j: [0u8; 2*SEC_PARAM_BYTES],
         };
         access_structure.total() as usize
     ];

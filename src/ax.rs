@@ -1,10 +1,9 @@
-use ctutils::CtEq;
+use ctutils::{Choice, CtEq, CtOption, CtSelect};
 use shake::{ExtendableOutput, XofReader, digest::array::Array};
 
 use crate::{
-    RecoveryInput, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ThresholdAccess, errors::{
-        ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType},
-        ADSSResult,
+    CompactShare, RecoveryInput, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareSlice, ThresholdAccess, errors::{
+        ADSSError::{IncompatibleShares, IntegrityError, InvalidCoinLength, NoShares, UnsupportedShareType}, ADSSResult,
     }, oracles::{ax_cprf, ax_dprf, ax_hash, ax_kprf, multi_hash_part}, s1,
 };
 
@@ -37,9 +36,11 @@ pub(crate) fn share(
     let mut public_part = vec![];
     public_part.extend_from_slice(&c);
     public_part.extend_from_slice(&d);
-    public_part.extend_from_slice(&j);
     
-    let shares = s1::share(access_structure, &k, &l)?;
+    let mut shares = s1::share(access_structure, &k, &l)?;
+    for s in shares.iter_mut() {
+        s.j.copy_from_slice(&j);
+    }
 
     Ok(
         RecoveryInput { shares, common: crate::CommonInfo { access_structure, public_part, aad: aad.to_vec() } }
@@ -49,8 +50,7 @@ pub(crate) fn share(
 pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES])> {
     let access_structure = input.common().access_structure();
     let public_info = input.common().public_part();
-    let (c, d, j) = split_cdj(public_info)?;
-
+    let (c, d) = split_cd(public_info)?;
 
     let k = s1::recover(input)?;
     let k_prime = ax_kprf(&k, input.common().aad());
@@ -63,14 +63,22 @@ pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PA
         *dst ^= src;
     }
 
-    let (j_prime, k_prime, _) = jkl(access_structure, &m, &r, input.common().aad())?;
-    let j_wrong = j_prime.ct_eq(&j).not();
-    let k_wrong = k_prime.as_slice().ct_eq(&k).not();
-    if j_wrong.or(k_wrong).to_bool() {
-        Err(IntegrityError)
-    } else {
-        Ok((m, r))
+    let (expected_j, expected_k, _) = jkl(access_structure, &m, &r, input.common().aad())?;
+    let mut j_right = Choice::TRUE;
+    for s in input.shares() {
+        j_right = j_right.and(s.j.ct_eq(&expected_j));
     }
+    let j_wrong = j_right.not();
+    let k_wrong = expected_k.as_slice().ct_eq(&k).not();
+    if j_wrong.or(k_wrong).to_bool() {
+        return Err(IntegrityError);
+    }
+
+    let reshared = share(access_structure, &m, &r.into(), input.common().aad())?;
+    if !reshared.shares().as_map()?.contains_all(input.shares()) {
+        return Err(IntegrityError);
+    }
+    Ok((m, r))
 }
 
 fn jkl(
@@ -98,20 +106,18 @@ fn jkl(
     Ok((j, k, l))
 }
 
-fn split_cdj(
-    cdj: &[u8],
-) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], [u8; 2 * SEC_PARAM_BYTES])> {
-    if cdj.len() < 3 * SEC_PARAM_BYTES {
+fn split_cd(
+    cd: &[u8],
+) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES])> {
+    if cd.len() < SEC_PARAM_BYTES {
         return Err(UnsupportedShareType);
     }
-    let c_len = cdj.len() - (3 * SEC_PARAM_BYTES);
+    let c_len = cd.len() - SEC_PARAM_BYTES;
     let mut c = vec![0u8; c_len];
-    c.copy_from_slice(&cdj[..c_len]);
+    c.copy_from_slice(&cd[..c_len]);
     let mut d = [0u8; SEC_PARAM_BYTES];
-    d.copy_from_slice(&cdj[c_len..c_len + SEC_PARAM_BYTES]);
-    let mut j = [0u8; 2 * SEC_PARAM_BYTES];
-    j.copy_from_slice(&cdj[cdj.len() - 2 * SEC_PARAM_BYTES..]);
-    Ok((c, d, j))
+    d.copy_from_slice(&cd[c_len..c_len + SEC_PARAM_BYTES]);
+    Ok((c, d))
 }
 
 #[cfg(test)]

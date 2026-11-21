@@ -43,7 +43,7 @@ fn execute_vector(v: &TestVector) -> anyhow::Result<()> {
             let s = hex::decode(s)?;
             let tmp: ADSSResult<CompactShare> = s.as_slice().try_into();
             if tmp.is_err() {
-                if v.result != TestResult::ShareError {
+                if v.result == TestResult::ShareError {
                     return Ok(());
                 } else {
                     bail!("Error parsing share: {}, {:?}", v.index, tmp.err());
@@ -61,7 +61,7 @@ fn execute_vector(v: &TestVector) -> anyhow::Result<()> {
             let s = hex::decode(s)?;
             let tmp: ADSSResult<ExpandedShare> = s.as_slice().try_into();
             if tmp.is_err() {
-                if v.result != TestResult::ShareError {
+                if v.result == TestResult::ShareError {
                     return Ok(());
                 } else {
                     bail!("Error parsing share: {}, {:?}", v.index, tmp.err());
@@ -72,7 +72,7 @@ fn execute_vector(v: &TestVector) -> anyhow::Result<()> {
         if v.result == TestResult::ShareError {
             bail!("missing expected error on shares: {}", v.index);
         }
-        RecoveryInput::from_expanded(&shares)
+        shares.as_slice().try_into()
     };
     if input.is_err() {
         if v.result == TestResult::RecoveryInputError {
@@ -164,13 +164,16 @@ fn generate_vectors() -> Result<()> {
     let input = share_secret(access_structure, secret, &zero_coins.into(), &aad)?;
     
     let mut vectors = vec![
-        build_vector(0, secret, &zero_coins, &input)?
+        build_vector(0, secret, &zero_coins, &input)?,
+        build_expanded_vector(1, secret, &zero_coins, &input)?
     ];
-    let mut idx = 1;
+    let mut idx = vectors.len() as u32;
     for i in 0..input.shares().len() {
         let mut tmp = input.clone();
         tmp.shares.remove(i);
         vectors.push(build_vector(idx, secret, &zero_coins, &tmp)?);
+        idx += 1;
+        vectors.push(build_expanded_vector(idx, secret, &zero_coins, &tmp)?);
         idx += 1;
     }
     {
@@ -178,6 +181,8 @@ fn generate_vectors() -> Result<()> {
         tmp.shares.swap(0, 1);
         tmp.shares.remove(2);
         vectors.push(build_vector(idx, secret, &zero_coins, &tmp)?);
+        idx += 1;
+        vectors.push(build_expanded_vector(idx, secret, &zero_coins, &tmp)?);
         idx += 1;
     }
     
@@ -203,5 +208,21 @@ fn build_vector(index: u32, secret: &[u8], iv: &[u8], input: &RecoveryInput) -> 
     id_subset.sort();
     Ok(
         TestVector { index, shares, common: Some(common), result: TestResult::RecoverySuccess, iv: hex::encode(iv), aad, secret, id_subset }
+    )
+}
+
+fn build_expanded_vector(index: u32, secret: &[u8], iv: &[u8], input: &RecoveryInput) -> Result<TestVector> {
+    let es : Vec<ExpandedShare> = input.into();
+    let mut shares = vec![];
+    for share in &es {
+        let tmp : Vec<u8> = share.into();
+        shares.push(hex::encode(tmp));
+    }
+    let aad = hex::encode(input.common().aad());
+    let secret = hex::encode(secret);
+    let mut id_subset = input.shares().ids();
+    id_subset.sort();
+    Ok(
+        TestVector { index, shares, common: None, result: TestResult::RecoverySuccess, iv: hex::encode(iv), aad, secret, id_subset }
     )
 }

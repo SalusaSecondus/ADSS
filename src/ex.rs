@@ -1,52 +1,51 @@
+use std::collections::HashMap;
+
 use ctutils::CtEq;
 use itertools::Itertools;
 
 use crate::{
-    CompactShare, RecoveryInput, SEC_PARAM_BYTES, ShareInfo, ThresholdAccess, ax, errors::{ADSSError::IntegrityError, ADSSResult},
+    CompactShare, RecoveryInput, SEC_PARAM_BYTES, ShareInfo, ShareSlice, ThresholdAccess, ax, errors::{ADSSError::IntegrityError, ADSSResult},
 };
 
 pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
-    let mut result: Option<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> = None;
+    let mut result: Option<(Vec<u8>, [u8; SEC_PARAM_BYTES])> = None;
+    let mut result_shares : Option<HashMap<u8, CompactShare>> = None;
     let shares = input.shares();
     let common = input.common();
     let mut inner = RecoveryInput { shares: vec![], common: common.clone() };
 
     for attempt in plausibleCombinations(common.access_structure(), shares)? {
+        // We skip proper subsets
+        if let Some(prior_shares) = &result_shares && prior_shares.contains_all_refs(&attempt) {
+                continue;
+        }
         let cloned : Vec<CompactShare> = attempt.iter().cloned().cloned().collect();
         inner.shares = cloned;
 
         let partial_result = ax::recover(&inner);
-        if let Ok(partial_candidate) = partial_result {
-            let candidate = (partial_candidate.0, partial_candidate.1, inner.shares().iter().map(|s| s.id()).collect());
+        if let Ok(candidate) = partial_result {
             if let Some(prior) = &result {
                 if !compatibleResults(prior, &candidate)? {
                     return Err(IntegrityError);
                 }
             } else {
-                result = Some((candidate.0, candidate.1, inner.shares().iter().map(|s| s.id()).collect()));
+                result_shares = Some(inner.shares().as_map()?);
+                result = Some(candidate);
             }
         }
     }
 
-    result.ok_or(IntegrityError)
+    result.map(|c| (c.0, c.1, result_shares.unwrap().ids())).ok_or(IntegrityError)
 }
 
 fn compatibleResults(
-    first: &(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>),
-    second: &(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>),
+    first: &(Vec<u8>, [u8; SEC_PARAM_BYTES]),
+    second: &(Vec<u8>, [u8; SEC_PARAM_BYTES]),
 ) -> ADSSResult<bool> {
     let secret_mismatch = first.0.ct_eq(&second.0).not();
     let r_mismatch = first.1.ct_eq(&second.1).not();
     if secret_mismatch.or(r_mismatch).to_bool() {
         return Ok(false);
-    }
-    if second.2.len() >= first.2.len() {
-        return Ok(false);
-    }
-    for x in &second.2 {
-        if !first.2.contains(x) {
-            return Ok(false);
-        }
     }
     Ok(true)
 }

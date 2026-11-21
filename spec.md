@@ -172,12 +172,11 @@ The additive identity is `0x00` and the the multiplicative identity is `0x01`.
 A `CompactShare` contains the information unique to each party and has three parts:
 - A one byte `id` which MUST NOT be equal to `0`
 - A 32-byte bytestring `secret_part`
+- A 64-byte bytestring `j`
 
-The `ENCODE` operation for `CompactShare` is the 34-byte bytestring starting with `0x01` followed by `id` and `secret_part`. (e.g., `0x01 || id || secret_part`)
+The `ENCODE` operation for `CompactShare` is the 98-byte bytestring starting with `0x01` followed by `id` and `secret_part`. (e.g., `0x01 || id || secret_part || j`)
 
 `DECODE` MUST reject a byte string of the wrong length, not starting with `0x01` or with an invalid `id` value.
-
-**Example:** `ENCODE(CompactShare{id: 5, secret_part: 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f})` => `0x0105000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`
 
 #### AccessStructure / ThresholdAccess
 
@@ -521,6 +520,11 @@ recover_secret(recovery_input):
   k_correct = ct_equal(k_expected, k)
   if not ct_and(j_correct, k_correct):
     return ERROR
+  
+  // Ensure that we can recreate the exact shares given to us.
+  reshare = share_secret(secret, recovery_input.common.access_structure, recovery_input.common.aad)
+  if not reshare.shares.superset(recovery_input.shares):
+    return ERROR
   return secret
 ```
 ## EX (Public, Optional)
@@ -569,7 +573,7 @@ plausible_subsets(ids[], threshold):
 
 ```
 compatible_result(a, b):
-  if len(a.ids) != len(b.ids):
+  if len(a.ids) >= len(b.ids):
     return FALSE
   if !is_subset(b, a):
     return FALSE
