@@ -4,7 +4,7 @@ use ctutils::CtEq;
 use itertools::Itertools;
 
 use crate::{
-    CompactShare, RecoveryInput, SEC_PARAM_BYTES, ShareInfo, ShareSlice, ThresholdAccess, ax, errors::{ADSSError::IntegrityError, ADSSResult},
+    CompactShare, RecoveryInput, SEC_PARAM_BYTES, ShareSlice, ThresholdAccess, ax, errors::{ADSSError::IntegrityError, ADSSResult},
 };
 
 pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PARAM_BYTES], Vec<u8>)> {
@@ -14,7 +14,7 @@ pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PA
     let common = input.common();
     let mut inner = RecoveryInput { shares: vec![], common: common.clone() };
 
-    for attempt in plausibleCombinations(common.access_structure(), shares)? {
+    for attempt in plausible_combinations(common.access_structure(), shares)? {
         // We skip proper subsets
         if let Some(prior_shares) = &result_shares && prior_shares.contains_all_refs(&attempt) {
                 continue;
@@ -25,7 +25,7 @@ pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PA
         let partial_result = ax::recover(&inner);
         if let Ok(candidate) = partial_result {
             if let Some(prior) = &result {
-                if !compatibleResults(prior, &candidate)? {
+                if !compatible_results(prior, &candidate)? {
                     return Err(IntegrityError);
                 }
             } else {
@@ -38,7 +38,7 @@ pub(crate) fn recover(input: &RecoveryInput) -> ADSSResult<(Vec<u8>, [u8; SEC_PA
     result.map(|c| (c.0, c.1, result_shares.unwrap().ids())).ok_or(IntegrityError)
 }
 
-fn compatibleResults(
+fn compatible_results(
     first: &(Vec<u8>, [u8; SEC_PARAM_BYTES]),
     second: &(Vec<u8>, [u8; SEC_PARAM_BYTES]),
 ) -> ADSSResult<bool> {
@@ -50,7 +50,7 @@ fn compatibleResults(
     Ok(true)
 }
 
-fn plausibleCombinations<'a>(
+fn plausible_combinations<'a>(
     access_structure: ThresholdAccess,
     shares: &'a [CompactShare],
 ) -> ADSSResult<Box<dyn Iterator<Item = Vec<&'a CompactShare>> + 'a>> {
@@ -67,7 +67,7 @@ fn plausibleCombinations<'a>(
 
 #[cfg(test)]
 mod test {
-    use crate::{CommonInfo, ShareSlice};
+    use crate::{CommonInfo, ShareInfo, ShareSlice};
 
     use super::*;
     use ax::share;

@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use shake::digest::common::Iv;
 
 use crate::{COMPACT_SHARE_LENGTH, CommonInfo, CompactShare, ExpandedShare, RecoveryInput, SEC_PARAM_BYTES, ShareSlice, ThresholdAccess, errors::ADSSResult, recover_from_subset, recover_secret, share_secret};
 

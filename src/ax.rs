@@ -1,9 +1,9 @@
-use ctutils::{Choice, CtEq, CtOption, CtSelect};
+use ctutils::{Choice, CtEq};
 use shake::{ExtendableOutput, XofReader, digest::array::Array};
 
 use crate::{
-    CompactShare, RecoveryInput, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareSlice, ThresholdAccess, errors::{
-        ADSSError::{IncompatibleShares, IntegrityError, InvalidCoinLength, NoShares, UnsupportedShareType}, ADSSResult,
+    RecoveryInput, SEC_PARAM_ARRAY_LEN, SEC_PARAM_BYTES, ShareSlice, ThresholdAccess, errors::{
+        ADSSError::{IntegrityError, InvalidCoinLength, UnsupportedShareType}, ADSSResult,
     }, oracles::{ax_cprf, ax_dprf, ax_hash, ax_kprf, multi_hash_part}, s1,
 };
 
