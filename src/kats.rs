@@ -17,6 +17,7 @@ pub enum TestResult {
     RecoveryInputError,
     RecoverySuccess,
     RecoverySubsetSuccess,
+    RecoverySubsetError,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +94,9 @@ fn execute_vector(v: &TestVector) -> anyhow::Result<()> {
     
     if v.result == TestResult::RecoveryError {
         assert!(recover_secret(&input).is_err(),  "missing recovery error: {}", v.index);
+        return Ok(())
+    } else if v.result == TestResult::RecoverySubsetError {
+        assert!(recover_from_subset(&input).is_err(),  "missing recovery error: {}", v.index);
         return Ok(())
     } else if v.result == TestResult::RecoverySuccess {
         let expected = hex::decode(&v.secret)?;
@@ -186,6 +190,62 @@ fn generate_vectors() -> Result<()> {
         idx += 1;
     }
     
+    // Insufficient shares
+    {
+        let mut tmp = input.clone();
+        tmp.shares.truncate(1);
+        let mut vec = build_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryError;
+        vectors.push(vec);
+        idx += 1;
+        let mut vec = build_expanded_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryError;
+        vectors.push(vec);
+        idx += 1;
+    }
+    // No Shares
+    {
+        let mut tmp = input.clone();
+        tmp.shares.clear();
+        let mut vec = build_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryInputError;
+        vectors.push(vec);
+        idx += 1;
+        let mut vec = build_expanded_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryInputError;
+        vectors.push(vec);
+        idx += 1;
+    }
+    // Single corrupted share
+    {
+        let mut tmp = input.clone();
+        tmp.shares[1].secret_part[1] ^= 1;
+
+        let mut vec = build_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryError;
+        vec.id_subset = vec![1, 3];
+        vectors.push(vec);
+        idx += 1;
+
+        let mut vec = build_expanded_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoveryError;
+        vec.id_subset = vec![1, 3];
+        vectors.push(vec);
+        idx += 1;
+
+        // Error correction should work though
+        let mut vec = build_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoverySubsetSuccess;
+        vec.id_subset = vec![1, 3];
+        vectors.push(vec);
+        idx += 1;
+        let mut vec = build_expanded_vector(idx, secret, &zero_coins, &tmp)?;
+        vec.result = TestResult::RecoverySubsetSuccess;
+        vec.id_subset = vec![1, 3];
+        vectors.push(vec);
+        idx += 1;
+    }
+   // Due to how I construct shares, I'm not sure how to create inconsistent ones.
     // let mut tmp = build_vector(1, secret, &zero_coins, &input)?;
     println!("[");
     for v in &vectors {
