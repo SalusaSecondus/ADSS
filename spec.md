@@ -174,7 +174,7 @@ A `CompactShare` contains the information unique to each party and has three par
 - A 32-byte bytestring `secret_part`
 - A 64-byte bytestring `j`
 
-The `ENCODE` operation for `CompactShare` is the 98-byte bytestring starting with `0x01` followed by `id` and `secret_part`. (e.g., `0x01 || id || secret_part || j`)
+The `ENCODE` operation for `CompactShare` is the 98-byte bytestring starting with `0x01` followed by `id`, `secret_part`, and `j`. (e.g., `0x01 || id || secret_part || j`)
 
 `DECODE` MUST reject a byte string of the wrong length, not starting with `0x01` or with an invalid `id` value.
 

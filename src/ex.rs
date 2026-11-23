@@ -67,12 +67,10 @@ fn plausible_combinations<'a>(
 
 #[cfg(test)]
 mod test {
-    use crate::{CommonInfo, ShareInfo, ShareSlice};
+    use crate::{ShareInfo, ShareSlice};
 
     use super::*;
     use ax::share;
-    use hex_literal::hex;
-    use shake::{ExtendableOutput, Shake128, Update, digest::array::Array};
 
     #[test]
     fn smoke_share_split() -> ADSSResult<()> {
