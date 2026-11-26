@@ -243,8 +243,29 @@ fn generate_vectors() -> Result<()> {
         vectors.push(vec);
         idx += 1;
     }
-   // Due to how I construct shares, I'm not sure how to create inconsistent ones.
-    // let mut tmp = build_vector(1, secret, &zero_coins, &input)?;
+    // Reshare catches tampered shares
+    {
+        let secret = b"Secret message";
+        let coins = b"Yellow SubmarineYellow Submarine".into();
+
+        let input = share_secret(access_structure, secret, coins, &aad)?;
+        let mut corrupted_shares = input.shares()[0..2].to_vec();
+        for byte in &mut corrupted_shares[0].secret_part {
+            *byte ^= 1;
+        }
+        for byte in &mut corrupted_shares[1].secret_part {
+            *byte ^= 2;
+        }
+        let corrupted_input = RecoveryInput::new(corrupted_shares.clone(), input.common().clone())?;
+        let mut vec = build_vector(idx, secret, coins, &corrupted_input)?;
+        idx += 1;
+        vec.result = TestResult::RecoveryError;
+        vectors.push(vec);
+        let mut vec = build_expanded_vector(idx, secret, coins, &corrupted_input)?;
+        idx += 1;
+        vec.result = TestResult::RecoveryError;
+        vectors.push(vec);
+    }
     println!("[");
     for v in &vectors {
         println!("  {},", serde_json::to_string(&v)?);

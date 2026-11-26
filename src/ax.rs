@@ -165,4 +165,33 @@ mod test {
         assert_eq!(&result.1, coins);
         Ok(())
     }
+
+    #[test]
+    fn reshare_check_works() -> ADSSResult<()> {
+        let access_structure = ThresholdAccess::new(2, 3)?;
+        let secret = b"Secret message";
+        let aad = b"Some aad";
+        let coins = b"Yellow SubmarineYellow Submarine".into();
+
+        let input = share(access_structure, secret, coins, aad)?;
+        let mut corrupted_shares = input.shares()[0..2].to_vec();
+        for byte in &mut corrupted_shares[0].secret_part {
+            *byte ^= 1;
+        }
+        for byte in &mut corrupted_shares[1].secret_part {
+            *byte ^= 2;
+        }
+
+        let corrupted =
+            RecoveryInput::new(corrupted_shares, input.common().clone())?;
+        let original_k = s1::recover(&input)?;
+        let corrupted_k = s1::recover(&corrupted)?;
+        // This check proves that we'll reach the reshare check in ax::recover
+        assert_eq!(original_k, corrupted_k);
+
+        let result = recover(&corrupted);
+
+        assert!(matches!(result, Err(IntegrityError)));
+        Ok(())
+    }
 }
